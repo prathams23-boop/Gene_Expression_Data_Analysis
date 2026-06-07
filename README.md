@@ -13,14 +13,28 @@ A complete, end-to-end pipeline implemented in R for retrieving gene expression 
 
 ## 📁 Repository Structure
 
-- `TCGA_Retrieval_Cleaning.R` – Script handling data extraction, sample filtering, outlier removal, and expression data normalization.
-- `WGCNA_Template.R` – The core pipeline script containing network construction, module detection, and visualization code.
+- `TCGA_BRCA_Retrieval.R` – Script handling data extraction, sample filtering, outlier removal, and expression data normalization.
+- `TCGA_BRCA_Full_Pipeline.R` – The core pipeline script containing network construction, module detection, and visualization code.
+- `WGCNA_Tutorial_Downloads.R` – All the important packages you need for this
+- `WGCNA_Protocol.pdf` – The protocol that I referred for the same
 - `LICENSE` – MIT License.
 
 ------------------------------------------------------------------------
 
-## 🛠️ Prerequisites & Installation
+## 🛠️ Prerequisites & Notes
 
 To run these scripts locally, ensure you have R (version 4.0 or higher recommended) installed along with the required Bioconductor and CRAN packages.
 
 Please refer to WGCNA_Tutorial_Downloads.R for instructions on installing all the required packages.
+
+The protocol I have attached (which I referred to while learning DESeq2 and WGCNA) does not include analyses for both signed and unsigned networks. My version, however, includes a detailed analysis of both these networks. While picking the soft threshold, I have considered multiple candidate powers for both the networks and have constructed multiple networks accordingly. The optimum power and network was then chosen on the basis of module separation as visible in the dendrogram plots.
+
+Another change from the protocol is that they have used OSCC data while I have worked here on BRCA data.
+
+In the detailed report that I have attached, you will find comprehensive explanations of the theory behind the whole code and algorithm when and where needed, along with proper explanations on how to interpret key figures.
+
+## 🛠️ How to use this?
+
+Using these scripts is easy, in the retrieval script, just change the project name according to the TCGA project data you will be working with. In the full pipeline script, you just need to change some variables and commands initially which take the number of features of the data as input, rest of it will be pretty much the same. Going through the entire thing here will surely be helpful before moving on to using it for your project.
+
+#### **Thank you, and good luck!**
