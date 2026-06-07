@@ -23,10 +23,4 @@ A complete, end-to-end pipeline implemented in R for retrieving gene expression 
 
 To run these scripts locally, ensure you have R (version 4.0 or higher recommended) installed along with the required Bioconductor and CRAN packages.
 
-Open your R console and install the core dependencies:
-
-\`\`\`R \# Install CRAN packages install.packages(c("tidyverse", "flashClust", "dynamictreeCut", "WGCNA"))
-
-# Install Bioconductor packages (if required for data retrieval)
-
-if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager") BiocManager::install(c("TCGAbiolinks", "DESeq2", "limma"))
+Please refer to WGCNA_Tutorial_Downloads.R for instructions on installing all the required packages.
