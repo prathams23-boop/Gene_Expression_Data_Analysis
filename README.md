@@ -2,6 +2,8 @@
 
 A complete, end-to-end pipeline implemented in R for retrieving gene expression data from The Cancer Genome Atlas (TCGA), preprocessing it, and performing Weighted Gene Co-expression Network Analysis (WGCNA). This workflow is designed to identify highly correlated gene modules and pinpoint key hub genes associated with specific clinical traits.
 
+This repository is a product of my work carried out as a summer intern (since May 2026) at the International Institute of Information Technology (IIIT), Hyderabad under the supervision of Professor Nita Parekh.
+
 ## 🚀 Features
 
 - **Data Retrieval & Cleaning:** Automates the downloading, filtering, and normalization of TCGA RNA-Seq data.
