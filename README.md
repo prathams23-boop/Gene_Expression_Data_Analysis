@@ -40,3 +40,5 @@ In the detailed report that I have attached, you will find comprehensive explana
 Using these scripts is easy, in the retrieval script, just change the project name according to the TCGA project data you will be working with. In the full pipeline script, you just need to change some variables and commands initially which take the number of features of the data as input, rest of it will be pretty much the same. Going through the entire thing here will surely be helpful before moving on to using it for your project.
 
 #### **Thank you, and good luck!**
+
+^**`Declaration on AI usage: Claude assisted with the drafting and Latex formatting of the reports (retrieval and WGCNA reports.`**^
