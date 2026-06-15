@@ -41,4 +41,4 @@ Using these scripts is easy, in the retrieval script, just change the project na
 
 #### **Thank you, and good luck!**
 
-^**`Declaration on AI usage: Claude assisted with the drafting and Latex formatting of the reports (retrieval and WGCNA reports.`**^
+\^**`Declaration on AI usage: Claude assisted with the drafting and Latex formatting of the reports (retrieval and WGCNA reports).`**\^

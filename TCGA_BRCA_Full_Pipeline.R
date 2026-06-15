@@ -23,67 +23,139 @@ library(clusterProfiler)
 
 # Load tumor data 
 
-tumor_data <- read.csv("C:/Users/Pratham Shah/Downloads/IIITH/TCGA_BRCA_Data_Run01/TCGA-BRCA/Transcriptome_Profiling/Gene_Expression_Quantification/TCGA-BRCA_clean_expression_tumor.csv",
-                       row.names=1)
-# row.names=1 tells R that the very first column of the 
-# spreadsheet contains gene ids and should be used
-# to name the rows rather than being treated as 
-# numerical data
+tumor_data <- read.csv("C:/Users/Pratham Shah/Downloads/IIITH/TCGA_BRCA_Data_Run02/TCGA-BRCA_protein_coding_tumor.csv",
+                       row.names = 1,
+                       check.names = FALSE)
 
-normal_data <- read.csv("C:/Users/Pratham Shah/Downloads/IIITH/TCGA_BRCA_Data_Run01/TCGA-BRCA/Transcriptome_Profiling/Gene_Expression_Quantification/TCGA-BRCA_clean_expression_normal.csv",
-                        row.names=1)
+normal_data <- read.csv("C:/Users/Pratham Shah/Downloads/IIITH/TCGA_BRCA_Data_Run02/TCGA-BRCA_protein_coding_normal.csv",
+                        row.names = 1,
+                        check.names = FALSE)
+
+# The first row of these CSVs is gene_name, which was column 2 in the
+# extraction script. After row.names=1 takes ensembl_id as rownames,
+# gene_name becomes the first data column. We need to drop it before
+# passing numeric data to DESeq2.
+# Save the gene name mapping first, then drop that column.
+
+gene_name_map <- data.frame(
+  ensembl_id = rownames(tumor_data),
+  gene_name  = tumor_data[, 1],
+  stringsAsFactors = FALSE
+)
+
+tumor_data  <- tumor_data[, -1]   # drop gene_name column
+normal_data <- normal_data[, -1]  # drop gene_name column
+
 dim(tumor_data)
 dim(normal_data)
 
-#viewing the first 5 rows and columns
+# viewing the first 5 rows and columns
 # and seeing column names
 tumor_data[1:5, 1:5]
-colnames(tumor_data)
+colnames(tumor_data)[1:5]
 normal_data[1:5, 1:5]
-colnames(normal_data)
+colnames(normal_data)[1:5]
 
-# NORMALISE WITH DESeq2
 
-# 1-create metadata table
-metadata_tumor <- data.frame(
-  Sample=colnames(tumor_data),
-  Condition=rep('Tumor', 1106) # rep is replicate
+# differential expression analysis
+
+# 1 - build combined matrix and metadata
+combined_counts <- cbind(tumor_data, normal_data)
+
+metadata_combined <- data.frame(
+  Sample    = c(colnames(tumor_data), colnames(normal_data)),
+  Condition = c(rep("Tumor",  ncol(tumor_data)),
+                rep("Normal", ncol(normal_data)))
+)
+rownames(metadata_combined) <- metadata_combined$Sample
+metadata_combined$Condition  <- factor(metadata_combined$Condition,
+                                       levels = c("Normal", "Tumor"))
+
+# safety check
+all(colnames(combined_counts) == metadata_combined$Sample)
+# must return TRUE
+
+# 2 - build DESeqDataSet with full design
+dds_combined <- DESeqDataSetFromMatrix(
+  countData = round(combined_counts),
+  colData   = metadata_combined,
+  design    = ~Condition
 )
 
+# 3 - run DE analysis
+dds_combined <- DESeq(dds_combined)
+
+# 4 - extract results: Tumor vs Normal
+# lfcThreshold=1 means we require at least 2-fold change
+de_results <- results(dds_combined,
+                      contrast      = c("Condition", "Tumor", "Normal"),
+                      alpha         = 0.05)
+
+summary(de_results)
+
+# 5 - filter to significant DEGs
+# padj < 0.05 and absolute log2FC >= 1
+de_results_df <- as.data.frame(de_results)
+de_results_df <- de_results_df[!is.na(de_results_df$padj), ]
+
+sig_degs <- rownames(de_results_df[
+  de_results_df$padj < 0.05 & abs(de_results_df$log2FoldChange) >= 1, 
+])
+
+cat("Number of significant DEGs:", length(sig_degs), "\n")
+
+# save the full DE results table for reference
+write.csv(de_results_df, "TCGA-BRCA_DE_results_tumor_vs_normal.csv")
+write.csv(data.frame(ensembl_id = sig_degs), "TCGA-BRCA_sig_DEGs_list.csv",
+          row.names = FALSE)
+
+
+# NORMALISE WITH DESeq2 (separately, design=~1, for downstream VST)
+# We normalise each tissue type independently for WGCNA, using only the DEG set
+
+
+# 1 - create metadata tables for each tissue separately
+metadata_tumor <- data.frame(
+  Sample    = colnames(tumor_data),
+  Condition = rep("Tumor", ncol(tumor_data))
+)
 rownames(metadata_tumor) <- metadata_tumor$Sample
 
 metadata_normal <- data.frame(
-  Sample=colnames(normal_data),
-  Condition=rep('Normal', 113)
+  Sample    = colnames(normal_data),
+  Condition = rep("Normal", ncol(normal_data))
 )
-
 rownames(metadata_normal) <- metadata_normal$Sample
 
-all(colnames(tumor_data)==metadata_tumor$Sample)
-# this MUST return TRUE because column names
-# must exactly match metadata row names
+all(colnames(tumor_data)  == metadata_tumor$Sample)
+# must return TRUE
+all(colnames(normal_data) == metadata_normal$Sample)
+# must return TRUE
 
-all(colnames(normal_data)==metadata_normal$Sample)
+# 2 - subset both matrices to DEGs only before building the DESeq objects
+tumor_deg  <- tumor_data[rownames(tumor_data)   %in% sig_degs, ]
+normal_deg <- normal_data[rownames(normal_data) %in% sig_degs, ]
 
-# 2-run the normalisation
+cat("DEGs present in tumor matrix: ",  nrow(tumor_deg),  "\n")
+cat("DEGs present in normal matrix: ", nrow(normal_deg), "\n")
 
+# 3 - run normalisation (design=~1: no group comparison, just size factor estimation)
 dds_tumor <- DESeqDataSetFromMatrix(
-  countData=round(tumor_data),
-  colData=metadata_tumor,
-  design=~1
+  countData = round(tumor_deg),
+  colData   = metadata_tumor,
+  design    = ~1
 )
-
-dds_tumor <- DESeq(dds_tumor) #running actual DESeq2
-normalized_counts_tumor <- counts(dds_tumor, normalized=TRUE)
+dds_tumor <- DESeq(dds_tumor)
+normalized_counts_tumor <- counts(dds_tumor, normalized = TRUE)
 
 dds_normal <- DESeqDataSetFromMatrix(
-  countData = round(normal_data),
-  colData = metadata_normal,
-  design = ~1
+  countData = round(normal_deg),
+  colData   = metadata_normal,
+  design    = ~1
 )
-
 dds_normal <- DESeq(dds_normal)
-normalized_counts_normal <- counts(dds_normal, normalized=TRUE)
+normalized_counts_normal <- counts(dds_normal, normalized = TRUE)
+
 
 # applying VST and 
 # filtering low-variance genes
@@ -91,36 +163,20 @@ normalized_counts_normal <- counts(dds_normal, normalized=TRUE)
 vsd_tumor <- varianceStabilizingTransformation(dds_tumor)
 vsd_normal <- varianceStabilizingTransformation(dds_normal)
 
-# per gene variance across all samples
+# the DEG set is already biologically filtered
+# just apply VST and use all DEGs
 
-rv_tumor <- rowVars(assay(vsd_tumor))
-rv_normal <- rowVars(assay(vsd_normal))
+filtered_tumor  <- assay(vsd_tumor)
+filtered_normal <- assay(vsd_normal)
 
-# keeping the top 5%
-
-q95_tumor <- quantile(rv_tumor, 0.95)
-q95_normal <- quantile(rv_normal, 0.95)
-
-filtered_tumor <- assay(vsd_tumor)[rv_tumor>q95_tumor,]
-filtered_normal <- assay(vsd_normal)[rv_normal>q95_normal,]
-
-# aligning (needed when number of tumor is not equal to number of normal)
-
-# 1. Find the genes that survived the 5% filter in BOTH datasets
+# align to common genes (should already be identical but check anyway)
 common_filtered_genes <- intersect(rownames(filtered_tumor), rownames(filtered_normal))
-
-# 2. Subset both filtered matrices to only keep these overlapping genes
-filtered_tumor <- filtered_tumor[common_filtered_genes, ]
+filtered_tumor  <- filtered_tumor[common_filtered_genes, ]
 filtered_normal <- filtered_normal[common_filtered_genes, ]
 
-# 3. Check the final dimensions to make sure they match perfectly
 dim(filtered_tumor)
 dim(filtered_normal)
-
-# checking the final counts
-
-cat("Genes retained-tumor: ", nrow(filtered_tumor), "\n")
-cat("Genes retained-normal: ", nrow(filtered_normal), "\n")
+cat("Genes going into WGCNA:", nrow(filtered_tumor), "\n")
 
 # choosing soft thresholding power
 
@@ -142,16 +198,10 @@ sft_tumor_unsigned <- pickSoftThreshold(
   verbose=5
 )
 
-# the above function previews wat the network
-# would look like under every single power 
-# level in the vector we defined
 
-sft_tumor_signed
-sft_tumor_unsigned
-power_tumor_unsigned <- 3
-power_tumor_signed_1 <- 7
-power_tumor_signed_2 <- 8
-power_tumor_signed_3 <- 9
+power_tumor_unsigned <- 4
+power_tumor_signed <- 9
+
 
 sft_normal_signed <- pickSoftThreshold(
   t(filtered_normal), # t is transpose
@@ -167,13 +217,11 @@ sft_normal_unsigned <- pickSoftThreshold(
   verbose=5
 )
 
-sft_normal_signed
-sft_normal_unsigned
-power_normal_signed_1 <- 18
-power_normal_signed_2 <- 20
+power_normal_signed_1 <- 14 # finalised
+power_normal_signed_2 <- 16
 
-power_normal_unsigned_1 <- 9
-power_normal_unsigned_2 <- 10
+power_normal_unsigned_1 <- 7 # finalised
+power_normal_unsigned_2 <- 8
 
 
 # scale independence and mean connectivity plots
@@ -337,16 +385,51 @@ brca_netwk_tumor_unsigned <- blockwiseModules(
   
 )
 
-exists("brca_netwk_tumor_unsigned")
-saveRDS(brca_netwk_tumor_unsigned, "brca_netwk_tumor_unsigned.rds")
 
-#tumor signed 1
-brca_netwk_tumor_signed_1 <- blockwiseModules(
+# since module size was bit high and number of genes were lesser in each module
+# we will do some hyperparameter tuning
+
+brca_netwk_tumor_unsigned_1 <- blockwiseModules(
   t(filtered_tumor),
-  power=power_tumor_signed_1,
+  power=power_tumor_unsigned,
+  networkType = "unsigned",
+  deepSplit = 1,
+  minModuleSize = 50,
+  TOMType = "unsigned",
+  mergeCutHeight = 0.25,
+  numericLabels = TRUE,
+  saveTOMs = TRUE,
+  saveTOMFileBase = "brca_tumor_unsigned_1",
+  verbose=3
+  
+)
+
+
+
+#tumor signed 
+brca_netwk_tumor_signed <- blockwiseModules(
+  t(filtered_tumor),
+  power=power_tumor_signed,
   networkType = "signed",
   deepSplit = 2,
   minModuleSize = 30,
+  TOMType = "signed",
+  mergeCutHeight = 0.25,
+  numericLabels = TRUE,
+  saveTOMs = TRUE,
+  saveTOMFileBase = "brca_tumor_signed",
+  verbose=3
+  
+)
+
+# same tuning we will try here
+
+brca_netwk_tumor_signed_1 <- blockwiseModules(
+  t(filtered_tumor),
+  power=power_tumor_unsigned,
+  networkType = "signed",
+  deepSplit = 1,
+  minModuleSize = 50,
   TOMType = "signed",
   mergeCutHeight = 0.25,
   numericLabels = TRUE,
@@ -355,41 +438,8 @@ brca_netwk_tumor_signed_1 <- blockwiseModules(
   verbose=3
   
 )
-saveRDS(brca_netwk_tumor_signed_1, "brca_netwk_tumor_signed_1.rds")
 
-#tumor signed 2
-brca_netwk_tumor_signed_2 <- blockwiseModules(
-  t(filtered_tumor),
-  power=power_tumor_signed_2,
-  networkType = "signed",
-  deepSplit = 2,
-  minModuleSize = 30,
-  TOMType = "signed",
-  mergeCutHeight = 0.25,
-  numericLabels = TRUE,
-  saveTOMs = TRUE,
-  saveTOMFileBase = "brca_tumor_signed_2",
-  verbose=3
-  
-)
-saveRDS(brca_netwk_tumor_signed_2, "brca_netwk_tumor_signed_2.rds")
 
-#tumor signed 3
-brca_netwk_tumor_signed_3 <- blockwiseModules(
-  t(filtered_tumor),
-  power=power_tumor_signed_3,
-  networkType = "signed",
-  deepSplit = 2,
-  minModuleSize = 30,
-  TOMType = "signed",
-  mergeCutHeight = 0.25,
-  numericLabels = TRUE,
-  saveTOMs = TRUE,
-  saveTOMFileBase = "brca_tumor_signed_3",
-  verbose=3
-  
-)
-saveRDS(brca_netwk_tumor_signed_3, "brca_netwk_tumor_signed_3.rds")
 
 #normal unsigned 1
 brca_netwk_normal_unsigned_1 <- blockwiseModules(
@@ -406,7 +456,24 @@ brca_netwk_normal_unsigned_1 <- blockwiseModules(
   verbose=3
   
 )
-saveRDS(brca_netwk_normal_unsigned_1, "brca_netwk_normal_unsigned_1.rds")
+
+# tuning
+
+#normal unsigned 1.1
+brca_netwk_normal_unsigned_1_1 <- blockwiseModules(
+  t(filtered_normal),
+  power=power_normal_unsigned_1,
+  networkType = "unsigned",
+  deepSplit = 1,
+  minModuleSize = 50,
+  TOMType = "unsigned",
+  mergeCutHeight = 0.25,
+  numericLabels = TRUE,
+  saveTOMs = TRUE,
+  saveTOMFileBase = "normal_unsigned_1_1",
+  verbose=3
+  
+)
 
 #normal unsigned 2
 brca_netwk_normal_unsigned_2 <- blockwiseModules(
@@ -442,6 +509,24 @@ brca_netwk_normal_signed_1 <- blockwiseModules(
   
 )
 
+# tuning 
+
+#normal signed 1.1
+brca_netwk_normal_signed_1_1 <- blockwiseModules(
+  t(filtered_normal),
+  power=power_normal_signed_1,
+  networkType = "signed",
+  deepSplit = 1,
+  minModuleSize = 50,
+  TOMType = "signed",
+  mergeCutHeight = 0.25,
+  numericLabels = TRUE,
+  saveTOMs = TRUE,
+  saveTOMFileBase = "normal_signed_1_1",
+  verbose=3
+  
+)
+
 saveRDS(brca_netwk_normal_signed_1, "brca_netwk_normal_signed_1.rds")
 
 #normal signed 2
@@ -462,17 +547,39 @@ brca_netwk_normal_signed_2 <- blockwiseModules(
 
 saveRDS(brca_netwk_normal_signed_1, "brca_netwk_normal_signed_1.rds")
 
+# MODULE SIZE TABLES
+
+table(brca_netwk_tumor_unsigned$colors)
+table(brca_netwk_tumor_unsigned_1$colors)
+table(brca_netwk_tumor_signed$colors)
+table(brca_netwk_tumor_signed_1$colors)
+
+
+
+table(brca_netwk_normal_signed_1$colors)
+table(brca_netwk_normal_signed_1_1$colors)
+
+table(brca_netwk_normal_signed_2$colors)
+
+table(brca_netwk_normal_unsigned_1$colors)
+table(brca_netwk_normal_unsigned_1_1$colors)
+
+table(brca_netwk_normal_unsigned_2$colors)
+
 # CLUSTER DENDOGRAMS
 
 # convert raw wgcna module names to colors
-colors_tum_signed_1   <- labels2colors(brca_netwk_tumor_signed_1$colors)
-colors_tum_signed_2 <- labels2colors(brca_netwk_tumor_signed_2$colors)
-colors_tum_signed_3 <- labels2colors(brca_netwk_tumor_signed_3$colors)
+colors_tum_signed   <- labels2colors(brca_netwk_tumor_signed$colors)
+colors_tum_signed_1 <- labels2colors(brca_netwk_tumor_signed_1$colors)
+
 colors_tum_unsigned <- labels2colors(brca_netwk_tumor_unsigned$colors)
+colors_tum_unsigned_1 <- labels2colors(brca_netwk_tumor_unsigned_1$colors)
 
 colors_norm_signed_1  <- labels2colors(brca_netwk_normal_signed_1$colors)
+colors_norm_signed_1_1  <- labels2colors(brca_netwk_normal_signed_1_1$colors)
 colors_norm_signed_2  <- labels2colors(brca_netwk_normal_signed_2$colors)
 colors_norm_unsigned_1 <- labels2colors(brca_netwk_normal_unsigned_1$colors)
+colors_norm_unsigned_1_1 <- labels2colors(brca_netwk_normal_unsigned_1_1$colors)
 colors_norm_unsigned_2 <- labels2colors(brca_netwk_normal_unsigned_2$colors)
 
 
@@ -480,10 +587,10 @@ colors_norm_unsigned_2 <- labels2colors(brca_netwk_normal_unsigned_2$colors)
 # Set up a 2-row, 2-column plotting grid
 par(mfrow = c(2, 2))
 
-#  Tumor Signed Dendrogram 1
+#  Tumor Signed Dendrogram 
 plotDendroAndColors(
-  brca_netwk_tumor_signed_1$dendrograms[[1]],                  # Raw clustering tree structures
-  colors_tum_signed_1[brca_netwk_tumor_signed_1$blockGenes[[1]]], # Aligns colors to match correct leaves
+  brca_netwk_tumor_signed$dendrograms[[1]],                  # Raw clustering tree structures
+  colors_tum_signed[brca_netwk_tumor_signed$blockGenes[[1]]], # Aligns colors to match correct leaves
   "Module colors",                                      # Title of the color track bar
   dendroLabels = FALSE,                                 # Prevents overlapping gene names text
   hang = 0.03,                                          # Clean visual alignment above color bar
@@ -492,29 +599,18 @@ plotDendroAndColors(
   main = "Tumor Network - SIGNED_1"
 )
 
-#  Tumor Signed Dendrogram 2
+#  Tumor Signed Dendrogram (tuned)
 plotDendroAndColors(
-  brca_netwk_tumor_signed_2$dendrograms[[1]],                  # Raw clustering tree structures
-  colors_tum_signed_2[brca_netwk_tumor_signed_2$blockGenes[[1]]], # Aligns colors to match correct leaves
+  brca_netwk_tumor_signed_1$dendrograms[[1]],                  # Raw clustering tree structures
+  colors_tum_signed_1[brca_netwk_tumor_signed_1$blockGenes[[1]]], # Aligns colors to match correct leaves
   "Module colors",                                      # Title of the color track bar
   dendroLabels = FALSE,                                 # Prevents overlapping gene names text
   hang = 0.03,                                          # Clean visual alignment above color bar
   addGuide = TRUE,                                      # Adds vertical guide lines
   guideHang = 0.05,
-  main = "Tumor Network - SIGNED_2"
+  main = "Tumor Network - SIGNED_1.1 (tuned)"
 )
 
-#  Tumor Signed Dendrogram 3
-plotDendroAndColors(
-  brca_netwk_tumor_signed_3$dendrograms[[1]],                  # Raw clustering tree structures
-  colors_tum_signed_3[brca_netwk_tumor_signed_3$blockGenes[[1]]], # Aligns colors to match correct leaves
-  "Module colors",                                      # Title of the color track bar
-  dendroLabels = FALSE,                                 # Prevents overlapping gene names text
-  hang = 0.03,                                          # Clean visual alignment above color bar
-  addGuide = TRUE,                                      # Adds vertical guide lines
-  guideHang = 0.05,
-  main = "Tumor Network - SIGNED_3"
-)
 
 # Tumor Unsigned Dendrogram 
 plotDendroAndColors(
@@ -527,6 +623,19 @@ plotDendroAndColors(
   guideHang = 0.05,
   main = "Tumor Network - UNSIGNED"
 )
+
+# Tumor Unsigned Dendrogram (tuned)
+plotDendroAndColors(
+  brca_netwk_tumor_unsigned_1$dendrograms[[1]],
+  colors_tum_unsigned_1[brca_netwk_tumor_unsigned_1$blockGenes[[1]]],
+  "Module colors",
+  dendroLabels = FALSE,
+  hang = 0.03,
+  addGuide = TRUE,
+  guideHang = 0.05,
+  main = "Tumor Network - UNSIGNED (tuned)"
+)
+
 
 
 # same plots for normal
@@ -542,6 +651,19 @@ plotDendroAndColors(
   addGuide = TRUE,
   guideHang = 0.05,
   main = "Normal Network - SIGNED_1"
+)
+
+
+# normal signed 1 (tuned)
+plotDendroAndColors(
+  brca_netwk_normal_signed_1_1$dendrograms[[1]],
+  colors_norm_signed_1_1[brca_netwk_normal_signed_1_1$blockGenes[[1]]],
+  "Module colors",
+  dendroLabels = FALSE,
+  hang = 0.03,
+  addGuide = TRUE,
+  guideHang = 0.05,
+  main = "Normal Network - SIGNED_1.1 (tuned)"
 )
 
 # normal signed 2
@@ -571,6 +693,19 @@ plotDendroAndColors(
   main = "Normal Network - UNSIGNED_1"
 )
 
+# normal unsigned 1 (tuned)
+plotDendroAndColors(
+  brca_netwk_normal_unsigned_1_1$dendrograms[[1]],
+  colors_norm_unsigned_1_1[brca_netwk_normal_unsigned_1_1$blockGenes[[1]]],
+  "Module colors",
+  dendroLabels = FALSE,
+  hang = 0.03,
+  addGuide = TRUE,
+  guideHang = 0.05,
+  main = "Normal Network - UNSIGNED_1.1 (tuned)"
+)
+
+
 # normal unsigned 2
 plotDendroAndColors(
   brca_netwk_normal_unsigned_2$dendrograms[[1]],
@@ -586,72 +721,81 @@ plotDendroAndColors(
 # Reset plotting grid back to default
 par(mfrow = c(1, 1))
 
+
+
 # **IMPORTANT** 
 # now based on these dendrograms, we figure out which of the candidate powers
 # is actually the most suitable and then we go ahead with only 1 network for 
 # each signed and unsigned tumor and normal for the further analysis
 
+# finalised networks:
+# brca_netwk_tumor_signed_1, brca_netwk_tumor_unsigned_1
+# brca_netwk_normal_signed_1_1, brca_netwk_normal_unsigned_1_1
 
-# MODULE SIZE TABLES
 
-table(netwk_tumor_unsigned$colors)
-table(netwk_tumor_signed$colors)
-table(netwk_normal_unsigned$colors)
-table(netwk_normal_signed$colors)
+
 
 # MODULE EIGENGENE COMPARISION
 # signed and unsigned
 
 
-# ------------------------------------------------------------------------------
-# STEP 1: Calculate and Clean Eigengenes for All 4 Networks
-# ------------------------------------------------------------------------------
+# calculating and cleaning eigengens
 
-# --- 1. Tumor Signed
-MEs_tum_signed <- moduleEigengenes(t(filtered_tumor), colors = colors_tum_signed)$eigengenes
+# Tumor Signed
+MEs_tum_signed <- moduleEigengenes(
+  t(filtered_tumor), 
+  colors = colors_tum_signed_1
+)$eigengenes
+MEs_tum_signed <- MEs_tum_signed[, colnames(MEs_tum_signed) != "MEgrey"]
 MEs_tum_signed <- orderMEs(MEs_tum_signed)
 colnames(MEs_tum_signed) <- gsub("ME", "", colnames(MEs_tum_signed))
 
-# --- 2. Tumor Unsigned
-MEs_tum_unsigned <- moduleEigengenes(t(filtered_tumor), colors = colors_tum_unsigned)$eigengenes
+# Tumor Unsigned
+MEs_tum_unsigned <- moduleEigengenes(
+  t(filtered_tumor), 
+  colors = colors_tum_unsigned_1
+)$eigengenes
+MEs_tum_unsigned <- MEs_tum_unsigned[, colnames(MEs_tum_unsigned) != "MEgrey"]
 MEs_tum_unsigned <- orderMEs(MEs_tum_unsigned)
 colnames(MEs_tum_unsigned) <- gsub("ME", "", colnames(MEs_tum_unsigned))
 
-# --- 3. Normal Signed
-MEs_norm_signed <- moduleEigengenes(t(filtered_normal), colors = colors_norm_signed)$eigengenes
+# 3. Normal Signed
+MEs_norm_signed <- moduleEigengenes(
+  t(filtered_normal), 
+  colors = colors_norm_signed_1_1
+)$eigengenes
+MEs_norm_signed <- MEs_norm_signed[, colnames(MEs_norm_signed) != "MEgrey"]
 MEs_norm_signed <- orderMEs(MEs_norm_signed)
 colnames(MEs_norm_signed) <- gsub("ME", "", colnames(MEs_norm_signed))
 
-# --- 4. Normal Unsigned
-MEs_norm_unsigned <- moduleEigengenes(t(filtered_normal), colors = colors_norm_unsigned)$eigengenes
+# 4. Normal Unsigned
+MEs_norm_unsigned <- moduleEigengenes(
+  t(filtered_normal), 
+  colors = colors_norm_unsigned_1_1
+)$eigengenes
+MEs_norm_unsigned <- MEs_norm_unsigned[, colnames(MEs_norm_unsigned) != "MEgrey"]
 MEs_norm_unsigned <- orderMEs(MEs_norm_unsigned)
 colnames(MEs_norm_unsigned) <- gsub("ME", "", colnames(MEs_norm_unsigned))
 
 
-# ------------------------------------------------------------------------------
-# STEP 2: Compute Pairwise Pearson Correlation Matrices
-# ------------------------------------------------------------------------------
+# pairwise pearson correlation
 cor_tum_signed    <- cor(MEs_tum_signed)
 cor_tum_unsigned  <- cor(MEs_tum_unsigned)
 cor_norm_signed   <- cor(MEs_norm_signed)
 cor_norm_unsigned <- cor(MEs_norm_unsigned)
 
 
-# ------------------------------------------------------------------------------
-# STEP 3: Verify Eigengene Dimensions
-# ------------------------------------------------------------------------------
-cat("=== Tumor Signed Matrix Dimensions ===\n")
+# verify eigengene dimensions
+cat("Tumor Signed Matrix Dimensions \n")
 print(dim(cor_tum_signed))
 
-cat("\n=== Tumor Unsigned Matrix Dimensions ===\n")
+cat("\nTumor Unsigned Matrix Dimensions \n")
 print(dim(cor_tum_unsigned))
 
 
-# ==============================================================================
-# LISTING 21: GENERATE FIGURE 9 — EIGENGENE CORRELATION HEATMAPS
-# ==============================================================================
+# EIGENGENE CORRELATION HEATMAPS
 
-# Ensure the gplots library is loaded for heatmap.2
+
 library(gplots)
 
 # Step 1: Calculate the 4 internal Pearson correlation matrices
@@ -663,7 +807,7 @@ cor_norm_signed   <- cor(MEs_norm_signed)
 # Step 2: Split the plotting window into a 2x2 grid to see all 4 at once
 par(mfrow = c(2, 2))
 
-# --- HEATMAP 9A: Tumor Unsigned ---
+# Tumor Unsigned
 heatmap.2(cor_tum_unsigned,
           main = "Tumor Module Correlation\n(UNSIGNED)",
           trace = "none",
@@ -671,7 +815,7 @@ heatmap.2(cor_tum_unsigned,
           key = TRUE, key.title = "Correlation", key.xlab = "Value",
           density.info = "none", denscol = NA)
 
-# --- HEATMAP 9B: Tumor Signed ---
+# Tumor Signed
 heatmap.2(cor_tum_signed,
           main = "Tumor Module Correlation\n(SIGNED)",
           trace = "none",
@@ -679,7 +823,7 @@ heatmap.2(cor_tum_signed,
           key = TRUE, key.title = "Correlation", key.xlab = "Value",
           density.info = "none", denscol = NA)
 
-# --- HEATMAP 9C: Normal Unsigned ---
+# Normal Unsigned
 heatmap.2(cor_norm_unsigned,
           main = "Normal Module Correlation\n(UNSIGNED)",
           trace = "none",
@@ -687,7 +831,7 @@ heatmap.2(cor_norm_unsigned,
           key = TRUE, key.title = "Correlation", key.xlab = "Value",
           density.info = "none", denscol = NA)
 
-# --- HEATMAP 9D: Normal Signed ---
+# Normal Signed
 heatmap.2(cor_norm_signed,
           main = "Normal Module Correlation\n(SIGNED)",
           trace = "none",
@@ -699,9 +843,7 @@ heatmap.2(cor_norm_signed,
 par(mfrow = c(1, 1))
 
 
-# ==============================================================================
-# SECTION 11: EXPORT ALL 4 NETWORKS TO CYTOSCAPE FORMAT
-# ==============================================================================
+# export to cytoscape format
 # 1. Install BiocManager from CRAN (if you don't have it already)
 if (!requireNamespace("BiocManager", quietly = TRUE)) {
   install.packages("BiocManager")
