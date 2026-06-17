@@ -856,14 +856,14 @@ library(org.Hs.eg.db)
 library(tidyverse)
 
 # Create a clean folder in your directory to store the output text files
-dir.create("modules", showWarnings = FALSE) [cite: 18]
+dir.create("modules", showWarnings = FALSE)
 
-# ------------------------------------------------------------------------------
+
 # FUNCTION: Reusable pipeline to extract Edge and Node files
-# ------------------------------------------------------------------------------
-export_to_cytoscape <- rm_duplicate_and_save <- function(filtered_data, power_val, net_type, colors_vector, prefix) {
+
+export_to_cytoscape <- function(filtered_data, power_val, net_type, colors_vector, prefix) {
   
-  cat("...Processing TOM for", prefix, "...\n")
+  cat("Processing TOM for", prefix, "\n")
   # 1. Calculate the Topological Overlap Matrix
   TOM_mat <- TOMsimilarityFromExpr(t(filtered_data), power = power_val, networkType = net_type)
   row.names(TOM_mat) <- row.names(filtered_data)
@@ -883,8 +883,13 @@ export_to_cytoscape <- rm_duplicate_and_save <- function(filtered_data, power_va
   
   # 4. Translate Ensembl IDs to official human Gene Symbols for both columns
   cat("...Translating Gene Symbols for", prefix, "...\n")
-  edge_list$gene1.name <- mapIds(org.Hs.eg.db, keys = edge_list$gene1, column = "SYMBOL", keytype = "ENSEMBL")
-  edge_list$gene2.name <- mapIds(org.Hs.eg.db, keys = edge_list$gene2, column = "SYMBOL", keytype = "ENSEMBL")
+  
+  # STRIP DECIMALS FOR DATABASE LOOKUP
+  gene1_clean <- gsub("\\..*", "", edge_list$gene1)
+  gene2_clean <- gsub("\\..*", "", edge_list$gene2)
+  
+  edge_list$gene1.name <- mapIds(org.Hs.eg.db, keys = gene1_clean, column = "SYMBOL", keytype = "ENSEMBL")
+  edge_list$gene2.name <- mapIds(org.Hs.eg.db, keys = gene2_clean, column = "SYMBOL", keytype = "ENSEMBL")
   
   # Fill in missing symbols with original Ensembl IDs as a fallback safety check
   edge_list$gene1.name <- ifelse(is.na(edge_list$gene1.name), edge_list$gene1, edge_list$gene1.name)
@@ -895,43 +900,47 @@ export_to_cytoscape <- rm_duplicate_and_save <- function(filtered_data, power_va
     GeneID = row.names(filtered_data),
     ModuleColor = colors_vector
   )
-  node_list$GeneSymbol <- mapIds(org.Hs.eg.db, keys = node_list$GeneID, column = "SYMBOL", keytype = "ENSEMBL")
+  
+  # STRIP DECIMALS FOR NODE LOOKUP
+  node_clean <- gsub("\\..*", "", node_list$GeneID)
+  
+  node_list$GeneSymbol <- mapIds(org.Hs.eg.db, keys = node_clean, column = "SYMBOL", keytype = "ENSEMBL")
   node_list$GeneSymbol <- ifelse(is.na(node_list$GeneSymbol), node_list$GeneID, node_list$GeneSymbol)
   
   # 6. Save data tables to your "modules" folder as clean, tab-separated text files
   write.table(edge_list, file = paste0("modules/Edges_", prefix, ".txt"), sep = "\t", row.names = FALSE, quote = FALSE)
   write.table(node_list, file = paste0("modules/Nodes_", prefix, ".txt"), sep = "\t", row.names = FALSE, quote = FALSE)
-  cat("=== Successfully exported Edge and Node files for:", prefix, "===\n\n")
+  cat("Successfully exported Edge and Node files for:", prefix, "\n\n")
 }
 
-# ------------------------------------------------------------------------------
 # EXECUTE RUNS FOR ALL 4 INDIVIDUAL CONFIGURATIONS
-# ------------------------------------------------------------------------------
+
 
 # Run 1: Tumor Unsigned
-export_to_cytoscape(filtered_tumor, power_tumor_unsigned, "unsigned", colors_tum_unsigned, "Tumor_Unsigned")
+export_to_cytoscape(filtered_tumor, power_tumor_unsigned, "unsigned", colors_tum_unsigned_1, "Tumor_Unsigned")
 
 # Run 2: Tumor Signed
-export_to_cytoscape(filtered_tumor, power_tumor_signed, "signed", colors_tum_signed, "Tumor_Signed")
+export_to_cytoscape(filtered_tumor, power_tumor_signed, "signed", colors_tum_signed_1, "Tumor_Signed")
 
 # Run 3: Normal Unsigned
-export_to_cytoscape(filtered_normal, power_normal_unsigned, "unsigned", colors_norm_unsigned, "Normal_Unsigned")
+export_to_cytoscape(filtered_normal, power_normal_unsigned_1, "unsigned", colors_norm_unsigned_1_1, "Normal_Unsigned")
 
 # Run 4: Normal Signed
-export_to_cytoscape(filtered_normal, power_normal_signed, "signed", colors_norm_signed, "Normal_Signed")
+export_to_cytoscape(filtered_normal, power_normal_signed_1, "signed", colors_norm_signed_1_1, "Normal_Signed")
+
+# SEE THE CYTOSCAPE_GUIDE PDF TO UNDERSTAND HOW TO USE THESE FILES TO VISUALISE THE NETWORKS IN CYTOSCAPE
 
 
-# ==============================================================================
-# SECTION 12: MODULE PRESERVATION ANALYSIS (TUMOR AS REFERENCE)
-# ==============================================================================
+# MODULE PRESERVATION ANALYSIS
+
 library(WGCNA)
 library(tidyverse)
-allowWGCNAThreads() # Accelerates calculation using multiple CPU cores
+allowWGCNAThreads()
 
-# ------------------------------------------------------------------------------
+
 # BLOCK 1: SIGNED NETWORK MODULE PRESERVATION
-# ------------------------------------------------------------------------------
-cat("\n=== STEP 1: Preparing Inputs for SIGNED Network ===\n")
+
+cat("\nSTEP 1: Preparing Inputs for SIGNED Network\n")
 
 # 1. Package the Transposed Data Matrices (Samples as Rows, Genes as Columns)
 multiData_signed <- list(
@@ -940,11 +949,11 @@ multiData_signed <- list(
 )
 
 # 2. Extract the SIGNED Tumor & Normal Character Color Vectors
-tumor_colors_signed  <- labels2colors(netwk_tumor_signed$colors)
-names(tumor_colors_signed) <- names(netwk_tumor_signed$colors)
+tumor_colors_signed  <- labels2colors(brca_netwk_tumor_signed_1$colors)
+names(tumor_colors_signed) <- names(brca_netwk_tumor_signed_1$colors)
 
-normal_colors_signed <- labels2colors(netwk_normal_signed$colors)
-names(normal_colors_signed) <- names(netwk_normal_signed$colors)
+normal_colors_signed <- labels2colors(brca_netwk_normal_signed_1_1$colors)
+names(normal_colors_signed) <- names(brca_netwk_normal_signed_1_1$colors)
 
 multiColor_signed <- list(
   Tumor  = tumor_colors_signed,
@@ -954,36 +963,57 @@ multiColor_signed <- list(
 # 3. Quick Integrity Check (Both must return TRUE)
 if(all(names(multiColor_signed$Tumor) %in% rownames(filtered_tumor)) && 
    all(names(multiColor_signed$Normal) %in% rownames(filtered_normal))) {
-  cat("✓ Sanity checks passed for Signed Network. Proceeding to calculations...\n")
+  cat("Sanity checks passed for Signed Network. Proceeding to calculations\n")
 } else {
-  stop("✕ Error: Gene name mismatch detected in Signed Network structures!")
+  stop("Error: Gene name mismatch detected in Signed Network structures!")
 }
 
-# 4. Run the Permutation Math for Signed
-cat("\n...Running SIGNED Module Preservation (100 loops)...\n")
-cat("Note: This is heavily CPU-bound and will take a significant amount of time.\n")
+# 4. Clean multiData for Zero Variance / Missing Entries
+cat("\nCleaning multiData for zero-variance genes/samples...\n")
 
+# Run the multi-set good samples and genes check
+gsg <- goodSamplesGenesMS(multiData_signed, verbose = 3)
+
+if (!gsg$allOK) {
+  cat("Removing genes:", sum(!gsg$goodGenes), "\n")
+  
+  # Manually subset the data using standard R indexing
+  # Keeps only the good samples for each set, and the good genes across both
+  multiData_signed$Tumor$data  <- multiData_signed$Tumor$data[gsg$goodSamples[[1]], gsg$goodGenes]
+  multiData_signed$Normal$data <- multiData_signed$Normal$data[gsg$goodSamples[[2]], gsg$goodGenes]
+  
+  # Synchronize the color vectors to match the remaining genes
+  remaining_genes          <- colnames(multiData_signed$Tumor$data)
+  multiColor_signed$Tumor  <- multiColor_signed$Tumor[remaining_genes]
+  multiColor_signed$Normal <- multiColor_signed$Normal[remaining_genes]
+  
+  cat("Cleaned multiData and synchronized color vectors.\n")
+} else {
+  cat("No zero-variance or missing data issues found.\n")
+}
+
+# 5. Run the Permutation Math for Signed
+cat("\nRunning SIGNED Module Preservation (100 loops)\n")
 preservation_signed <- modulePreservation(
   multiData         = multiData_signed,
   multiColor        = multiColor_signed,
-  referenceNetworks = 1,       # 1 = Tumor is the Reference framework
-  nPermutations     = 100,     # 100 baseline loops for statistical rigor
-  randomSeed        = 12345,   # Fixes the seed for identical reproducibility
+  referenceNetworks = 1,       
+  nPermutations     = 100,     
+  randomSeed        = 12345,   
   verbose           = 3
 )
-
 # 5. Extract Statistics and Filter out the Artificial "Gold" Control Module
 stats_signed <- preservation_signed$preservation$Z$ref.Tumor$inColumnsAlsoPresentIn.Normal
 stats_signed <- stats_signed[rownames(stats_signed) != "gold", ]
 
-cat("\n=== SIGNED Network Permutations Complete! ===\n")
+cat("\nSIGNED Network Permutations Complete!\n")
 print(head(stats_signed))
 
 
-# ------------------------------------------------------------------------------
+
 # BLOCK 2: UNSIGNED NETWORK MODULE PRESERVATION
-# ------------------------------------------------------------------------------
-cat("\n=== STEP 2: Preparing Inputs for UNSIGNED Network ===\n")
+
+cat("\nSTEP 2: Preparing Inputs for UNSIGNED Network\n")
 
 # 1. Package Data Matrices
 multiData_unsigned <- list(
@@ -992,11 +1022,11 @@ multiData_unsigned <- list(
 )
 
 # 2. Extract the UNSIGNED Tumor & Normal Character Color Vectors
-tumor_colors_unsigned  <- labels2colors(netwk_tumor_unsigned$colors)
-names(tumor_colors_unsigned) <- names(netwk_tumor_unsigned$colors)
+tumor_colors_unsigned  <- labels2colors(brca_netwk_tumor_unsigned_1$colors)
+names(tumor_colors_unsigned) <- names(brca_netwk_tumor_unsigned_1$colors)
 
-normal_colors_unsigned <- labels2colors(netwk_normal_unsigned$colors)
-names(normal_colors_unsigned) <- names(netwk_normal_unsigned$colors)
+normal_colors_unsigned <- labels2colors(brca_netwk_normal_unsigned_1_1$colors)
+names(normal_colors_unsigned) <- names(brca_netwk_normal_unsigned_1_1$colors)
 
 multiColor_unsigned <- list(
   Tumor  = tumor_colors_unsigned,
@@ -1006,45 +1036,67 @@ multiColor_unsigned <- list(
 # 3. Quick Integrity Check (Both must return TRUE)
 if(all(names(multiColor_unsigned$Tumor) %in% rownames(filtered_tumor)) && 
    all(names(multiColor_unsigned$Normal) %in% rownames(filtered_normal))) {
-  cat("✓ Sanity checks passed for Unsigned Network. Proceeding to calculations...\n")
+  cat("Sanity checks passed for Unsigned Network. Proceeding to calculations...\n")
 } else {
-  stop("✕ Error: Gene name mismatch detected in Unsigned Network structures!")
+  stop("Error: Gene name mismatch detected in Unsigned Network structures!")
 }
 
-# 4. Run the Permutation Math for Unsigned
-cat("\n...Running UNSIGNED Module Preservation (100 loops)...\n")
+# 4. Clean multiData for Zero Variance / Missing Entries
+cat("\nCleaning multiData for zero-variance genes/samples\n")
 
+# Run the multi-set good samples and genes check
+gsg <- goodSamplesGenesMS(multiData_unsigned, verbose = 3)
+
+if (!gsg$allOK) {
+  cat("Removing genes:", sum(!gsg$goodGenes), "\n")
+  
+  # Manually subset the data using standard R indexing
+  # Keeps only the good samples for each set, and the good genes across both
+  multiData_unsigned$Tumor$data  <- multiData_unsigned$Tumor$data[gsg$goodSamples[[1]], gsg$goodGenes]
+  multiData_unsigned$Normal$data <- multiData_unsigned$Normal$data[gsg$goodSamples[[2]], gsg$goodGenes]
+  
+  # Synchronize the color vectors to match the remaining genes
+  remaining_genes          <- colnames(multiData_unsigned$Tumor$data)
+  multiColor_unsigned$Tumor  <- multiColor_unsigned$Tumor[remaining_genes]
+  multiColor_unsigned$Normal <- multiColor_unsigned$Normal[remaining_genes]
+  
+  cat("Cleaned multiData and synchronized color vectors.\n")
+} else {
+  cat("No zero-variance or missing data issues found.\n")
+}
+
+# 5. Run the Permutation Math for Signed
+cat("\nRunning UNSIGNED Module Preservation (100 loops)\n")
 preservation_unsigned <- modulePreservation(
   multiData         = multiData_unsigned,
   multiColor        = multiColor_unsigned,
-  referenceNetworks = 1,       # 1 = Tumor is the Reference framework
+  referenceNetworks = 1,       
   nPermutations     = 100,     
   randomSeed        = 12345,   
   verbose           = 3
 )
-
 # 5. Extract Statistics and Filter out the Artificial "Gold" Control Module
 stats_unsigned <- preservation_unsigned$preservation$Z$ref.Tumor$inColumnsAlsoPresentIn.Normal
 stats_unsigned <- stats_unsigned[rownames(stats_unsigned) != "gold", ]
 
-cat("\n=== UNSIGNED Network Permutations Complete! ===\n")
+cat("\nUNSIGNED Network Permutations Complete!\n")
 print(head(stats_unsigned))
 
-# ==============================================================================
-# SECTION 12.4 & 12.5: EXTRACT STATS & GENERATE Z-SUMMARY DOT PLOTS
-# ==============================================================================
+
+# EXTRACT STATS & GENERATE Z-SUMMARY DOT PLOTS
+
 library(ggplot2)
 
-# ------------------------------------------------------------------------------
+
 # PART A: Plotting the SIGNED Network Preservation
-# ------------------------------------------------------------------------------
+
 # Create a clean dataframe for ggplot
 plot_data_signed <- data.frame(
   Module    = rownames(stats_signed),
   Z_summary = as.numeric(stats_signed$Zsummary.pres)
 )
 
-# Generate the Figure 20 Dot Plot for Signed
+# Generate the Dot Plot for Signed
 ggplot(plot_data_signed, aes(x = Z_summary, y = reorder(Module, Z_summary))) +
   geom_point(aes(color = Module), size = 5) +
   scale_color_identity() + # Uses the literal module text color for the dots
@@ -1061,16 +1113,16 @@ ggplot(plot_data_signed, aes(x = Z_summary, y = reorder(Module, Z_summary))) +
   annotate("text", x = 6, y = 1, label = "Moderate", color = "purple", angle = 90, vjust = -0.5) +
   annotate("text", x = 12, y = 1, label = "Strong Preservation", color = "red", angle = 90, vjust = -0.5)
 
-# ------------------------------------------------------------------------------
+
 # PART B: Plotting the UNSIGNED Network Preservation
-# ------------------------------------------------------------------------------
+
 # Create a clean dataframe for ggplot
 plot_data_unsigned <- data.frame(
   Module    = rownames(stats_unsigned),
   Z_summary = as.numeric(stats_unsigned$Zsummary.pres)
 )
 
-# Generate the Figure 20 Dot Plot for Unsigned
+# Generate the Dot Plot for Unsigned
 ggplot(plot_data_unsigned, aes(x = Z_summary, y = reorder(Module, Z_summary))) +
   geom_point(aes(color = Module), size = 5) +
   scale_color_identity() + 
@@ -1088,207 +1140,466 @@ ggplot(plot_data_unsigned, aes(x = Z_summary, y = reorder(Module, Z_summary))) +
   annotate("text", x = 12, y = 1, label = "Strong Preservation", color = "red", angle = 90, vjust = -0.5)
 
 
-# ==============================================================================
-# SECTION 12.6: EXTRACT GENE LISTS PER MODULE (FIGURE 21)
-# ==============================================================================
 
-# 1. Get all unique module color names from your Signed network construction
-module_names_signed <- unique(tumor_colors_signed)
+# GO ENRICHMENT
 
-# 2. Group the Ensembl Gene IDs into named list buckets based on their color
-genes_in_modules_signed <- lapply(module_names_signed, function(module) {
-  names(tumor_colors_signed[tumor_colors_signed == module])
-})
-
-# 3. Attach the official color names to each list bucket
-names(genes_in_modules_signed) <- module_names_signed
-
-# 4. Print the structure to your console (Generates Figure 21 Output)
-cat("\n=== EXTRACTED MODULE GENE COUNTS (SIGNED WORKFLOW) ===\n")
-str(genes_in_modules_signed)
-
-# ==============================================================================
-# SECTION 13: GO ENRICHMENT ANALYSIS (FIGURES 22-25)
-# ==============================================================================
+library(WGCNA)
 library(clusterProfiler)
 library(org.Hs.eg.db)
+library(ggplot2)
+library(ggpubr)
 
-# ------------------------------------------------------------------------------
-# STEP 1: Set Up Clean Output Directories (Listing 31)
-# ------------------------------------------------------------------------------
-dir.create("enrich", showWarnings = FALSE)
-dir.create("enrich/GO_T_N", showWarnings = FALSE)
 
-# ------------------------------------------------------------------------------
-# STEP 2: Build a Reusable GO Enrichment Function (Listing 32)
-# ------------------------------------------------------------------------------
+# Clean out stale empty CSVs from the failed previous run
+
+if (dir.exists("enrich/GO_Signed"))   file.remove(list.files("enrich/GO_Signed",   full.names = TRUE))
+if (dir.exists("enrich/GO_Unsigned")) file.remove(list.files("enrich/GO_Unsigned", full.names = TRUE))
+
+dir.create("enrich",             showWarnings = FALSE)
+dir.create("enrich/GO_Signed",   showWarnings = FALSE)
+dir.create("enrich/GO_Unsigned", showWarnings = FALSE)
+
+
+# STEP 1: Core GO Enrichment Function
+# strips Ensembl version decimals (e.g. ENSG00000000005.6 -> ENSG00000000005)
+# before passing to org.Hs.eg.db, which only accepts bare Ensembl IDs
+
 perform_go_enrichment <- function(gene_list, ontology, output_path) {
   
-  cat(paste("\n...Running GO Enrichment for Ontology:", ontology, "...\n"))
+  # Strip version suffixes
+  gene_list_clean <- gsub("\\..*", "", gene_list)
   
   go_results <- enrichGO(
-    gene          = gene_list,      # Our vector of Ensembl Gene IDs from the module
-    OrgDb         = org.Hs.eg.db,   # The human genome annotation database mapping file
-    keyType       = "ENSEMBL",      # Explicitly states our input format is Ensembl IDs
-    ont           = ontology,       # Can accept "BP", "CC", or "MF"
-    pAdjustMethod = "BH",           # Benjamini-Hochberg false-discovery rate correction
-    pvalueCutoff  = 0.05,           # Statistical significance threshold
-    qvalueCutoff  = 0.05            # Strict false-positive filtering cutoff
+    gene          = gene_list_clean,
+    OrgDb         = org.Hs.eg.db,
+    keyType       = "ENSEMBL",
+    ont           = ontology,
+    pAdjustMethod = "BH",
+    pvalueCutoff  = 0.05,
+    qvalueCutoff  = 0.05
   )
   
-  # Save raw results automatically to a spreadsheet for your report appendices
-  write.csv(as.data.frame(go_results), file = output_path, row.names = TRUE)
+  # Only write CSV if results exist (avoids empty file crash downstream)
+  if (!is.null(go_results) && nrow(as.data.frame(go_results)) > 0) {
+    write.csv(as.data.frame(go_results), file = output_path, row.names = TRUE)
+  }
   
   return(go_results)
 }
 
-# ------------------------------------------------------------------------------
-# STEP 3: Run GO Analysis for the Blue Module (Listing 33)
-# ------------------------------------------------------------------------------
-# 1. Isolate your target blue module genes (ensuring background 'grey' isn't mixed in)
-blue_genes <- genes_in_modules_signed$blue
 
-# 2. Compute Biological Processes (BP) for Figure 22
-go_blue_bp <- perform_go_enrichment(
-  gene_list   = blue_genes, 
-  ontology    = "BP", 
-  output_path = "enrich/GO_T_N/GO_BP_blue.csv"
-)
+# STEP 2: Plot generation function for one module 
 
-# 3. Compute Cellular Components (CC)
-go_blue_cc <- perform_go_enrichment(
-  gene_list   = blue_genes, 
-  ontology    = "CC", 
-  output_path = "enrich/GO_T_N/GO_CC_blue.csv"
-)
-
-# 4. Compute Molecular Functions (MF)
-go_blue_mf <- perform_go_enrichment(
-  gene_list   = blue_genes, 
-  ontology    = "MF", 
-  output_path = "enrich/GO_T_N/GO_MF_blue.csv"
-)
-
-# ------------------------------------------------------------------------------
-# STEP 4: Visualize the Top Biological Processes (Figure 22 Output)
-# ------------------------------------------------------------------------------
-cat("\n=== Generating Figure 22: Blue Module Enrichment Plot ===\n")
-dotplot(go_blue_bp, showCategory = 10, title = "Top 10 Enriched Biological Processes (Blue Module)")
-
-
-# ==============================================================================
-# SECTION 13.2 (CONTINUED): AUTOMATED GO ENRICHMENT FOR ALL MODULES (LISTING 34)
-# ==============================================================================
-
-# 1. Gather all unique module names and strip out the "grey" noise module
-module_names_to_test <- names(genes_in_modules_signed)
-module_names_to_test <- module_names_to_test[module_names_to_test != "grey"]
-
-cat("Found modules to analyze:", paste(module_names_to_test, collapse=", "), "\n")
-
-# 2. Run the loop engine across all remaining colors
-for (mod in module_names_to_test) {
+plot_go_for_module <- function(go_bp, go_cc, go_mf, mod_name, network_type, out_dir) {
   
-  # Extract the specific gene list vector for the current loop color
+  plots <- list()
+  
+  if (!is.null(go_bp) && nrow(as.data.frame(go_bp)) > 0) {
+    plots[["BP"]] <- dotplot(go_bp, showCategory = 10, font.size = 9, label_format = 60) +
+      scale_size_continuous(range = c(2, 7)) +
+      theme_minimal() +
+      ggtitle(paste0("GO Biological Process (", mod_name, " - ", network_type, ")"))
+  }
+  
+  if (!is.null(go_cc) && nrow(as.data.frame(go_cc)) > 0) {
+    plots[["CC"]] <- dotplot(go_cc, showCategory = 10, font.size = 9, label_format = 60) +
+      scale_size_continuous(range = c(2, 7)) +
+      theme_minimal() +
+      ggtitle(paste0("GO Cellular Component (", mod_name, " - ", network_type, ")"))
+  }
+  
+  if (!is.null(go_mf) && nrow(as.data.frame(go_mf)) > 0) {
+    plots[["MF"]] <- dotplot(go_mf, showCategory = 10, font.size = 9, label_format = 60) +
+      scale_size_continuous(range = c(2, 7)) +
+      theme_minimal() +
+      ggtitle(paste0("GO Molecular Function (", mod_name, " - ", network_type, ")"))
+  }
+  
+  if (length(plots) > 0) {
+    combined <- ggarrange(plotlist = plots, ncol = 1, nrow = length(plots))
+    out_file <- paste0(out_dir, "/GO_combined_", mod_name, ".png")
+    ggsave(out_file, combined, width = 10, height = 5 * length(plots), dpi = 300)
+    cat("  Saved combined dotplot for", mod_name, "to", out_file, "\n")
+  } else {
+    cat("  No significant GO terms found for any ontology in module:", mod_name, "\n")
+  }
+}
+
+
+# STEP 3: SIGNED Network GO Enrichment
+
+cat("\nSIGNED NETWORK: Building Gene Lists\n")
+
+module_names_signed   <- unique(tumor_colors_signed)
+genes_in_modules_signed <- lapply(module_names_signed, function(mod) {
+  names(tumor_colors_signed[tumor_colors_signed == mod])
+})
+names(genes_in_modules_signed) <- module_names_signed
+
+signed_modules_to_test <- module_names_signed[module_names_signed != "grey"]
+cat("Modules to test (Signed):", paste(signed_modules_to_test, collapse = ", "), "\n")
+
+cat("\nRunning GO Enrichment for Signed Modules\n")
+
+go_results_signed <- list()
+
+for (mod in signed_modules_to_test) {
+  cat("\nProcessing module:", mod, "(Signed)\n")
   gene_list <- genes_in_modules_signed[[mod]]
+  go_results_signed[[mod]] <- list()
   
-  # Cycle through all 3 branches of the Gene Ontology dictionary
   for (ont in c("BP", "CC", "MF")) {
+    out_path <- paste0("enrich/GO_Signed/GO_", ont, "_", mod, ".csv")
+    cat("  Running", ont, "...\n")
     
-    # Dynamically build the file path (e.g., "enrich/GO_T_N/GO_BP_turquoise.csv")
-    out_path <- paste0("enrich/GO_T_N/GO_", ont, "_", mod, ".csv")
-    
-    message("Running GO-", ont, " for the ", mod, " module...")
-    
-    # Use tryCatch so if a tiny module has zero significant terms, the loop doesn't crash
-    tryCatch({
-      perform_go_enrichment(
-        gene_list   = gene_list, 
-        ontology    = ont, 
-        output_path = out_path
-      )
-    }, error = function(e) {
-      message("  ℹ Note: No statistically significant terms found for: ", mod, " (", ont, ")")
-    })
+    result <- tryCatch(
+      perform_go_enrichment(gene_list, ont, out_path),
+      error = function(e) {
+        cat("  No significant terms for Signed:", mod, "(", ont, ") -", e$message, "\n")
+        return(NULL)
+      }
+    )
+    go_results_signed[[mod]][[ont]] <- result
   }
+  
+  # Generate combined 3-panel dotplot for this module
+  plot_go_for_module(
+    go_bp       = go_results_signed[[mod]][["BP"]],
+    go_cc       = go_results_signed[[mod]][["CC"]],
+    go_mf       = go_results_signed[[mod]][["MF"]],
+    mod_name    = mod,
+    network_type = "Signed",
+    out_dir     = "enrich/GO_Signed"
+  )
 }
 
-cat("\n=== All Module GO Enrichments Computed and Saved to 'enrich/GO_T_N/'! ===\n")
+cat("\nSIGNED GO Enrichment Complete\n")
 
 
-# ==============================================================================
-# SECTION 13.3 (ALTERNATIVE): INDIVIDUAL DOTPLOTS FOR EVERY MODULE
-# ==============================================================================
-library(clusterProfiler)
+# STEP 4: UNSIGNED Network GO Enrichment
+
+cat("\nUNSIGNED NETWORK: Building Gene Lists\n")
+
+module_names_unsigned   <- unique(tumor_colors_unsigned)
+genes_in_modules_unsigned <- lapply(module_names_unsigned, function(mod) {
+  names(tumor_colors_unsigned[tumor_colors_unsigned == mod])
+})
+names(genes_in_modules_unsigned) <- module_names_unsigned
+
+unsigned_modules_to_test <- module_names_unsigned[module_names_unsigned != "grey"]
+cat("Modules to test (Unsigned):", paste(unsigned_modules_to_test, collapse = ", "), "\n")
+
+cat("\nRunning GO Enrichment for Unsigned Modules\n")
+
+go_results_unsigned <- list()
+
+for (mod in unsigned_modules_to_test) {
+  cat("\nProcessing module:", mod, "(Unsigned)\n")
+  gene_list <- genes_in_modules_unsigned[[mod]]
+  go_results_unsigned[[mod]] <- list()
+  
+  for (ont in c("BP", "CC", "MF")) {
+    out_path <- paste0("enrich/GO_Unsigned/GO_", ont, "_", mod, ".csv")
+    cat("  Running", ont, "...\n")
+    
+    result <- tryCatch(
+      perform_go_enrichment(gene_list, ont, out_path),
+      error = function(e) {
+        cat("  No significant terms for Unsigned:", mod, "(", ont, ") -", e$message, "\n")
+        return(NULL)
+      }
+    )
+    go_results_unsigned[[mod]][[ont]] <- result
+  }
+  
+  # Generate combined 3-panel dotplot for this module
+  plot_go_for_module(
+    go_bp        = go_results_unsigned[[mod]][["BP"]],
+    go_cc        = go_results_unsigned[[mod]][["CC"]],
+    go_mf        = go_results_unsigned[[mod]][["MF"]],
+    mod_name     = mod,
+    network_type = "Unsigned",
+    out_dir      = "enrich/GO_Unsigned"
+  )
+}
+
+cat("\nUNSIGNED GO Enrichment Complete\n")
+
+
+# STEP 5: Summary
+
+cat("\nSUMMARY\n")
+
+cat("\nSIGNED modules with at least one significant GO term:\n")
+for (mod in signed_modules_to_test) {
+  has_results <- sapply(c("BP","CC","MF"), function(ont) {
+    r <- go_results_signed[[mod]][[ont]]
+    !is.null(r) && nrow(as.data.frame(r)) > 0
+  })
+  cat(" ", mod, "->", paste(names(has_results)[has_results], collapse = ", "),
+      if (any(has_results)) "" else "(no significant terms)", "\n")
+}
+
+cat("\nUNSIGNED modules with at least one significant GO term:\n")
+for (mod in unsigned_modules_to_test) {
+  has_results <- sapply(c("BP","CC","MF"), function(ont) {
+    r <- go_results_unsigned[[mod]][[ont]]
+    !is.null(r) && nrow(as.data.frame(r)) > 0
+  })
+  cat(" ", mod, "->", paste(names(has_results)[has_results], collapse = ", "),
+      if (any(has_results)) "" else "(no significant terms)", "\n")
+}
+
+# HUB GENE IDENTIFICATION
+
+# Hub genes are the most highly connected members of each co-expression module.
+# They are identified by computing Module Membership (kME): the Pearson
+# correlation between each gene's expression profile and the module eigengene.
+# Genes with the highest absolute kME are the hub genes.
+
+
+library(WGCNA)
+library(org.Hs.eg.db)
 library(ggplot2)
+library(dplyr)
 
-# 1. Gather all unique module names and strip out the "grey" noise
-module_names_to_plot <- names(genes_in_modules_signed)
-module_names_to_plot <- module_names_to_plot[module_names_to_plot != "grey"]
+# Number of top hub genes to extract per module
+N_HUBS <- 20
 
-# 2. Loop through each color and generate its unique individual plot
-for (mod in module_names_to_plot) {
+dir.create("hub_genes", showWarnings = FALSE)
+
+# SECTION 1: SIGNED NETWORK HUB GENES
+
+
+cat("\nSIGNED NETWORK: Computing Module Membership\n")
+
+
+MM_signed <- as.data.frame(
+  cor(t(filtered_tumor), MEs_tum_signed, use = "pairwise.complete.obs")
+)
+
+# The column names of MM_signed now match the module colour names in MEs_tum_signed.
+# Confirm:
+cat("Module membership matrix dimensions:", dim(MM_signed), "\n")
+cat("Modules covered:", colnames(MM_signed), "\n")
+
+
+# Extract top N hub genes per module (signed)
+
+
+# Get the module colour names (excluding grey, which was already removed from MEs)
+signed_modules <- colnames(MM_signed)
+
+hub_list_signed <- list()
+
+for (mod in signed_modules) {
   
-  # Dynamically locate the saved CSV file we generated in the previous step
-  csv_file <- paste0("enrich/GO_T_N/GO_BP_", mod, ".csv")
+  # kME scores for this module across all genes
+  kme_scores <- MM_signed[[mod]]
+  names(kme_scores) <- rownames(filtered_tumor)
   
-  # Check if the file exists and has data before plotting
-  if (file.exists(csv_file)) {
-    go_data <- read.csv(csv_file)
+  # Sort by absolute kME descending and take top N
+  top_genes_ensembl <- names(sort(abs(kme_scores), decreasing = TRUE))[1:N_HUBS]
+  top_kme_values    <- kme_scores[top_genes_ensembl]
+  
+  # Strip Ensembl version suffixes for database lookup
+  top_genes_clean <- gsub("\\..*", "", top_genes_ensembl)
+  
+  # Translate to HGNC gene symbols
+  gene_symbols <- tryCatch(
+    mapIds(org.Hs.eg.db,
+           keys      = top_genes_clean,
+           column    = "SYMBOL",
+           keytype   = "ENSEMBL",
+           multiVals = "first"),
+    error = function(e) setNames(top_genes_ensembl, top_genes_ensembl)
+  )
+  
+  hub_list_signed[[mod]] <- data.frame(
+    Module        = mod,
+    EnsemblID     = top_genes_ensembl,
+    GeneSymbol    = gene_symbols,
+    kME           = round(top_kme_values, 4),
+    row.names     = NULL,
+    stringsAsFactors = FALSE
+  )
+  
+  cat("  Module", mod, "-- top hub gene:", gene_symbols[1],
+      "(kME =", round(top_kme_values[1], 3), ")\n")
+}
+
+# Combine into a single data frame
+hub_genes_signed <- do.call(rbind, hub_list_signed)
+rownames(hub_genes_signed) <- NULL
+
+# Save to CSV
+write.csv(hub_genes_signed,
+          "hub_genes/hub_genes_signed_top20.csv",
+          row.names = FALSE)
+
+cat("\nSigned hub gene table saved to hub_genes/hub_genes_signed_top20.csv\n")
+print(hub_genes_signed)
+
+
+
+# SECTION 2: UNSIGNED NETWORK HUB GENES
+
+
+cat("\nUNSIGNED NETWORK: Computing Module Membership\n")
+
+MM_unsigned <- as.data.frame(
+  cor(t(filtered_tumor), MEs_tum_unsigned, use = "pairwise.complete.obs")
+)
+
+cat("Module membership matrix dimensions:", dim(MM_unsigned), "\n")
+cat("Modules covered:", colnames(MM_unsigned), "\n")
+
+unsigned_modules <- colnames(MM_unsigned)
+
+hub_list_unsigned <- list()
+
+for (mod in unsigned_modules) {
+  
+  kme_scores <- MM_unsigned[[mod]]
+  names(kme_scores) <- rownames(filtered_tumor)
+  
+  top_genes_ensembl <- names(sort(abs(kme_scores), decreasing = TRUE))[1:N_HUBS]
+  top_kme_values    <- kme_scores[top_genes_ensembl]
+  
+  top_genes_clean <- gsub("\\..*", "", top_genes_ensembl)
+  
+  gene_symbols <- tryCatch(
+    mapIds(org.Hs.eg.db,
+           keys      = top_genes_clean,
+           column    = "SYMBOL",
+           keytype   = "ENSEMBL",
+           multiVals = "first"),
+    error = function(e) setNames(top_genes_ensembl, top_genes_ensembl)
+  )
+  
+  hub_list_unsigned[[mod]] <- data.frame(
+    Module        = mod,
+    EnsemblID     = top_genes_ensembl,
+    GeneSymbol    = gene_symbols,
+    kME           = round(top_kme_values, 4),
+    row.names     = NULL,
+    stringsAsFactors = FALSE
+  )
+  
+  cat("  Module", mod, "-- top hub gene:", gene_symbols[1],
+      "(kME =", round(top_kme_values[1], 3), ")\n")
+}
+
+hub_genes_unsigned <- do.call(rbind, hub_list_unsigned)
+rownames(hub_genes_unsigned) <- NULL
+
+write.csv(hub_genes_unsigned,
+          "hub_genes/hub_genes_unsigned_top20.csv",
+          row.names = FALSE)
+
+cat("\nUnsigned hub gene table saved to hub_genes/hub_genes_unsigned_top20.csv\n")
+print(hub_genes_unsigned)
+
+
+
+# SECTION 3: VISUALISE kME DISTRIBUTIONS (bar charts per module)
+# Shows the kME score of the top N hub genes for each module in both networks.
+
+
+cat("\nGenerating kME bar plots\n")
+
+plot_hub_bar <- function(hub_df, network_type) {
+  
+  modules_to_plot <- unique(hub_df$Module)
+  
+  for (mod in modules_to_plot) {
     
-    if (nrow(go_data) > 0) {
-      cat("Generating individual Biological Process plot for module:", mod, "\n")
-      
-      # Read the data back into a formal enrichResult object so clusterProfiler can plot it
-      # If your original go objects are still in your R environment, we can plot them directly:
-      obj_name <- paste0("go_", mod, "_bp")
-      
-      # Open a new plotting window so they don't overwrite each other in RStudio
-      if (.Platform$OS.type == "windows") { dev.new() } else { x11() }
-      
-      # Construct the plot title dynamically based on the current color
-      plot_title <- paste0("Top 10 Enriched Biological Processes (", toupper(mod), " Module)")
-      
-      # Use tryCatch in case a module has too few terms to render safely
-      tryCatch({
-        # We read the file data directly into a ggplot-friendly format for custom standalone plots
-        # Sorting by significance (p.adjust) and grabbing the top 10 rows
-        top_10 <- head(go_data[order(go_data$p.adjust), ], 10)
-        
-        # Calculate GeneRatio as a decimal number for the X-axis mapping
-        # Splitting strings like "5/300" into a numeric fraction
-        top_10$GeneRatio_num <- sapply(top_10$GeneRatio, function(x) {
-          num_den <- as.numeric(strsplit(x, "/")[[1]])
-          return(num_den[1] / num_den[2])
-        })
-        
-        # Generate the crisp standalone dotplot
-        p <- ggplot(top_10, aes(x = GeneRatio_num, y = reorder(Description, GeneRatio_num))) +
-          geom_point(aes(size = Count, color = p.adjust)) +
-          scale_color_gradient(low = "red", high = "blue") +
-          labs(
-            title = plot_title,
-            subtitle = "Reference: Tumor Network Construction",
-            x = "Gene Ratio",
-            y = "Biological Process",
-            color = "Adjusted p-value",
-            size = "Gene Count"
-          ) +
-          theme_minimal() +
-          theme(
-            axis.text.y = element_text(size = 10, face = "bold"),
-            plot.title = element_text(hjust = 0.5, face = "bold")
-          )
-        
-        print(p)
-        
-        # Automatically save each image as a crisp PNG file inside your enrich folder!
-        ggsave(filename = paste0("enrich/GO_T_N/dotplot_standalone_", mod, ".png"), 
-               plot = p, width = 8, height = 6, dpi = 300)
-        
-      }, error = function(e) {
-        message("  ℹ Could not plot standalone figure for: ", mod)
-      })
-    }
+    df_mod <- hub_df[hub_df$Module == mod, ]
+    
+    # Use GeneSymbol if available, otherwise fall back to EnsemblID
+    df_mod$Label <- ifelse(
+      is.na(df_mod$GeneSymbol) | df_mod$GeneSymbol == "",
+      df_mod$EnsemblID,
+      df_mod$GeneSymbol
+    )
+    
+    # Sort by absolute kME for plotting
+    df_mod <- df_mod[order(abs(df_mod$kME), decreasing = FALSE), ]
+    df_mod$Label <- factor(df_mod$Label, levels = df_mod$Label)
+    
+    p <- ggplot(df_mod, aes(x = abs(kME), y = Label)) +
+      geom_bar(stat = "identity", fill = mod, colour = "grey30",
+               linewidth = 0.3, alpha = 0.85) +
+      labs(
+        title    = paste0("Top ", N_HUBS, " Hub Genes -- ",
+                          toupper(mod), " Module (", network_type, ")"),
+        subtitle = paste0("Ranked by |kME| (Module Membership)"),
+        x        = "Module Membership |kME|",
+        y        = "Gene Symbol"
+      ) +
+      xlim(0, 1) +
+      theme_minimal(base_size = 11) +
+      theme(
+        axis.text.y  = element_text(size = 9),
+        plot.title   = element_text(face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5, colour = "grey40")
+      )
+    
+    out_file <- paste0("hub_genes/hub_bar_", network_type, "_", mod, ".png")
+    ggsave(out_file, p, width = 7, height = 6, dpi = 300)
+    cat("  Saved:", out_file, "\n")
   }
 }
+
+plot_hub_bar(hub_genes_signed,   "signed")
+plot_hub_bar(hub_genes_unsigned, "unsigned")
+
+cat("\nAll hub gene bar plots saved to hub_genes/\n")
+
+
+
+# SECTION 4: COMBINED kME SUMMARY TABLE
+# A single flat table covering both networks for easy comparison.
+
+hub_genes_signed$Network   <- "Signed"
+hub_genes_unsigned$Network <- "Unsigned"
+
+hub_genes_all <- rbind(hub_genes_signed, hub_genes_unsigned)
+hub_genes_all <- hub_genes_all[, c("Network", "Module", "GeneSymbol",
+                                   "EnsemblID", "kME")]
+
+write.csv(hub_genes_all,
+          "hub_genes/hub_genes_combined_both_networks.csv",
+          row.names = FALSE)
+
+cat("\nCombined hub gene table (both networks) saved to:\n")
+cat("  hub_genes/hub_genes_combined_both_networks.csv\n")
+
+
+# summary
+
+
+cat("HUB GENE IDENTIFICATION COMPLETE\n")
+
+
+cat("\nSIGNED NETWORK -- Top hub gene per module:\n")
+for (mod in unique(hub_genes_signed$Module)) {
+  top <- hub_genes_signed[hub_genes_signed$Module == mod, ][1, ]
+  cat(sprintf("  %-12s : %-10s (kME = %.3f)\n",
+              mod, top$GeneSymbol, top$kME))
+}
+
+cat("\nUNSIGNED NETWORK -- Top hub gene per module:\n")
+for (mod in unique(hub_genes_unsigned$Module)) {
+  top <- hub_genes_unsigned[hub_genes_unsigned$Module == mod, ][1, ]
+  cat(sprintf("  %-12s : %-10s (kME = %.3f)\n",
+              mod, top$GeneSymbol, top$kME))
+}
+
+cat("\nOutput files:\n")
+cat("  hub_genes/hub_genes_signed_top20.csv\n")
+cat("  hub_genes/hub_genes_unsigned_top20.csv\n")
+cat("  hub_genes/hub_genes_combined_both_networks.csv\n")
+cat("  hub_genes/hub_bar_signed_<module>.png  (one per module)\n")
+cat("  hub_genes/hub_bar_unsigned_<module>.png (one per module)\n")
+
