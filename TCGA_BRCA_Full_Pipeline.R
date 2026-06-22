@@ -426,7 +426,7 @@ brca_netwk_tumor_signed <- blockwiseModules(
 
 brca_netwk_tumor_signed_1 <- blockwiseModules(
   t(filtered_tumor),
-  power=power_tumor_unsigned,
+  power=power_tumor_signed,
   networkType = "signed",
   deepSplit = 1,
   minModuleSize = 50,
@@ -1229,6 +1229,7 @@ plot_go_for_module <- function(go_bp, go_cc, go_mf, mod_name, network_type, out_
 # STEP 3: SIGNED Network GO Enrichment
 
 cat("\nSIGNED NETWORK: Building Gene Lists\n")
+
 
 module_names_signed   <- unique(tumor_colors_signed)
 genes_in_modules_signed <- lapply(module_names_signed, function(mod) {
