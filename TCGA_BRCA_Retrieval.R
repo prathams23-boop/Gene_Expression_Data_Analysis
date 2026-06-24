@@ -130,6 +130,24 @@ patient_receptor <- patient_biotab[, c("bcr_patient_barcode",
                                        "her2_status_by_ihc")]
 colnames(patient_receptor) <- c("patient", "ER_Status", "PR_Status", "HER2_Status")
 
+# additional clinical fields (age, menopause status, tumor stage, race)
+# patient_biotab already has the header-artefact rows removed above.
+# Run print(colnames(patient_biotab)) once and confirm these exact names exist
+# in your export before trusting this block; BCR Biotab column names can drift
+# slightly across cohorts/versions (e.g. ajcc_pathologic_tumor_stage is
+# sometimes named tumor_stage instead).
+print(colnames(patient_biotab))
+
+patient_extra <- patient_biotab[, c("bcr_patient_barcode",
+                                    "age_at_diagnosis",
+                                    "menopause_status",
+                                    "ajcc_pathologic_tumor_stage",
+                                    "race")]
+colnames(patient_extra) <- c("patient", "Age", "Menopause_Status",
+                             "Tumor_Stage", "Race")
+
+patient_extra$Age <- as.numeric(patient_extra$Age)
+
 # colDataPrepare for PAM50 subtype + sample_type
 # Use the 16-char sample IDs already in the expression matrix
 sample_ids <- colnames(brca_expr)[-(1:2)]   # drop the two annotation columns
@@ -140,6 +158,7 @@ clinical_col <- clinical_col[, c("patient", "sample", "sample_type",
 
 # Merge both clinical tables on patient barcode 
 clinical_merged <- merge(patient_receptor, clinical_col, by = "patient")
+clinical_merged <- merge(clinical_merged, patient_extra, by = "patient")  # NEW
 
 write.csv(clinical_merged, "TCGA-BRCA_clinical_metadata.csv", row.names = FALSE)
 message("--> Saved: TCGA-BRCA_clinical_metadata.csv  (",
@@ -209,7 +228,7 @@ message("\n  FINAL SUMMARY")
 message("  Protein-coding genes:            ", nrow(tumor_expr))
 message("  Tumor samples (Normal-Like removed): ", ncol(tumor_expr) - 2)
 message("  Normal tissue samples:           ", ncol(normal_expr) - 2)
-message("=========================================================")
+
 
 write.csv(tumor_expr,  "TCGA-BRCA_protein_coding_tumor.csv",  row.names = FALSE)
 write.csv(normal_expr, "TCGA-BRCA_protein_coding_normal.csv", row.names = FALSE)
@@ -221,4 +240,3 @@ message("  TCGA-BRCA_raw_counts_protein_coding_all_samples.csv")
 message("  TCGA-BRCA_clinical_metadata.csv")
 message("  TCGA-BRCA_protein_coding_tumor.csv")
 message("  TCGA-BRCA_protein_coding_normal.csv")
-# ==============================================================================
