@@ -1276,6 +1276,26 @@ for (mod in signed_modules_to_test) {
 
 cat("\nSIGNED GO Enrichment Complete\n")
 
+# FOUND NO GO ENRICHMENT RESULTS FOR THE RED MODULE
+
+# Counting how many clean genes we actually have in the red module
+red_genes <- names(tumor_colors_signed[tumor_colors_signed == "red"])
+red_clean <- gsub("\\..*", "", red_genes)
+print(length(red_clean))
+
+# Checking how many of them actually exist in the database
+library(org.Hs.eg.db)
+mapped <- AnnotationDbi::select(
+  org.Hs.eg.db, 
+  keys    = red_clean, 
+  columns = "SYMBOL", 
+  keytype = "ENSEMBL"
+)
+
+# Seeing how many actually mapped successfully
+successful_maps <- na.omit(mapped)
+cat("Total genes in Red module:", length(red_clean), "\n")
+cat("Successfully mapped to Symbols:", nrow(successful_maps), "\n")
 
 # STEP 4: UNSIGNED Network GO Enrichment
 
