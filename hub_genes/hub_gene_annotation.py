@@ -14,10 +14,6 @@ consolidated annotation table by querying public APIs:
   - MyGene.info  -> official name, NCBI/RefSeq functional summary, aliases, Entrez ID
   - cBioPortal   -> % of TCGA-BRCA patients with a mutation / copy-number alteration
 
-Survival (KM Plotter) and subtype-expression (UALCAN/GEPIA2) plots are NOT scriptable;
-those are web-gated. Use the output CSV to pick the top 2-3 genes per module, then
-enter just those into those sites by hand.
-
 Default run needs no arguments:
     python annotate_hub_genes.py
 """
@@ -56,9 +52,9 @@ def load_hub_csv(path):
     return df
 
 
-# ---------------------------------------------------------------------------
+
 # MyGene.info: biological summaries, keyed by Ensembl gene ID (robust vs symbols)
-# ---------------------------------------------------------------------------
+
 def fetch_mygene(ens_ids, symbols_by_ens):
     """
     Returns dict keyed by clean Ensembl ID:
@@ -125,15 +121,38 @@ def fetch_mygene(ens_ids, symbols_by_ens):
     return out
 
 
-# ---------------------------------------------------------------------------
 # cBioPortal: mutation + copy-number alteration frequency in TCGA-BRCA
-# ---------------------------------------------------------------------------
-def fetch_cbioportal(entrez_ids, base, study):
+
+def _cbio_session():
+    """A requests session that retries on dropped/incomplete connections."""
+    from requests.adapters import HTTPAdapter
+    try:
+        from urllib3.util.retry import Retry
+    except Exception:
+        from requests.packages.urllib3.util.retry import Retry
+    s = requests.Session()
+    retry = Retry(total=4, connect=4, read=4, backoff_factor=1.0,
+                  status_forcelist=(429, 500, 502, 503, 504),
+                  allowed_methods=frozenset(["GET", "POST"]))
+    adapter = HTTPAdapter(max_retries=retry)
+    s.mount("https://", adapter)
+    s.mount("http://", adapter)
+    return s
+
+
+def _chunks(seq, size):
+    for i in range(0, len(seq), size):
+        yield seq[i:i + size]
+
+
+def fetch_cbioportal(entrez_ids, base, study, chunk_size=20):
     """
     Returns dict keyed by entrez id (int):
         {entrez: {"mut_pct":float, "cna_pct":float, "altered_pct":float}}
-    Two batch POSTs (mutations, CNA) + two sample-list lookups. Any failure
-    raises; caller handles it and leaves these columns blank.
+    Genes are fetched in small chunks (default 20) so no single response is
+    large enough for a TLS-inspecting proxy to truncate, and the session
+    retries automatically on dropped connections. Any unrecoverable failure
+    raises; the caller handles it and leaves these columns blank.
     """
     base = base.rstrip("/")
     mut_profile = f"{study}_mutations"
@@ -142,44 +161,41 @@ def fetch_cbioportal(entrez_ids, base, study):
     cna_list = f"{study}_cna"
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     entrez_ids = [int(e) for e in entrez_ids]
+    sess = _cbio_session()
 
     def sample_ids(list_id):
-        r = requests.get(f"{base}/sample-lists/{list_id}", timeout=60, verify=VERIFY)
+        r = sess.get(f"{base}/sample-lists/{list_id}", timeout=60, verify=VERIFY)
         r.raise_for_status()
         return set(r.json().get("sampleIds", []))
+
+    def fetch_events(profile, list_id, params, dest):
+        """POST in chunks; accumulate {entrez: set(sampleId)} into dest."""
+        url = f"{base}/molecular-profiles/{profile}/{params['_path']}"
+        qp = {k: v for k, v in params.items() if not k.startswith("_")}
+        for chunk in _chunks(entrez_ids, chunk_size):
+            r = sess.post(url, params=qp,
+                          json={"sampleListId": list_id, "entrezGeneIds": chunk},
+                          headers=headers, timeout=120, verify=VERIFY)
+            r.raise_for_status()
+            for rec in r.json():
+                g = rec.get("entrezGeneId")
+                s = rec.get("sampleId")
+                if g is not None and s is not None:
+                    dest.setdefault(g, set()).add(s)
+            time.sleep(0.2)  # be polite to the public server
 
     seq_samples = sample_ids(seq_list)
     cna_samples = sample_ids(cna_list)
 
-    # Mutations
-    r = requests.post(
-        f"{base}/molecular-profiles/{mut_profile}/mutations/fetch",
-        params={"projection": "ID"},
-        json={"sampleListId": seq_list, "entrezGeneIds": entrez_ids},
-        headers=headers, timeout=120, verify=VERIFY,
-    )
-    r.raise_for_status()
     mut_samples = {}  # entrez -> set(sampleId)
-    for rec in r.json():
-        g = rec.get("entrezGeneId")
-        s = rec.get("sampleId")
-        if g is not None and s is not None:
-            mut_samples.setdefault(g, set()).add(s)
+    fetch_events(mut_profile, seq_list,
+                 {"_path": "mutations/fetch", "projection": "ID"}, mut_samples)
 
-    # Copy-number (deep deletions + amplifications only)
-    r = requests.post(
-        f"{base}/molecular-profiles/{cna_profile}/discrete-copy-number/fetch",
-        params={"discreteCopyNumberEventType": "HOMDEL_AND_AMPL", "projection": "ID"},
-        json={"sampleListId": cna_list, "entrezGeneIds": entrez_ids},
-        headers=headers, timeout=120, verify=VERIFY,
-    )
-    r.raise_for_status()
-    cna_alt = {}  # entrez -> set(sampleId)
-    for rec in r.json():
-        g = rec.get("entrezGeneId")
-        s = rec.get("sampleId")
-        if g is not None and s is not None:
-            cna_alt.setdefault(g, set()).add(s)
+    cna_alt = {}  # entrez -> set(sampleId), deep deletions + amplifications only
+    fetch_events(cna_profile, cna_list,
+                 {"_path": "discrete-copy-number/fetch",
+                  "discreteCopyNumberEventType": "HOMDEL_AND_AMP",
+                  "projection": "ID"}, cna_alt)
 
     n_seq = max(len(seq_samples), 1)
     n_cna = max(len(cna_samples), 1)
@@ -208,6 +224,9 @@ def main():
                     help="Skip the cBioPortal alteration-frequency lookup.")
     ap.add_argument("--cbioportal-base", default="https://www.cbioportal.org/api")
     ap.add_argument("--cbioportal-study", default="brca_tcga_pan_can_atlas_2018")
+    ap.add_argument("--cbio-chunk", type=int, default=20,
+                    help="Genes per cBioPortal request (default 20). Lower it "
+                         "(e.g. 10) if a strict proxy still truncates responses.")
     ap.add_argument("--insecure", action="store_true",
                     help="Skip TLS certificate verification. Use this behind a "
                          "TLS-inspecting campus/corporate proxy. Safe here because "
@@ -231,7 +250,7 @@ def main():
     symbols_by_ens = dict(zip(df["ens_clean"], df["GeneSymbol"]))
     print(f"Loaded {len(df)} rows, {len(uniq_ens)} unique genes, {n_modules} modules.")
 
-    # --- MyGene summaries ---
+    # MyGene summaries 
     print("Querying MyGene.info for gene summaries ...")
     mg = fetch_mygene(uniq_ens, symbols_by_ens)
     print(f"  resolved {len(mg)} / {len(uniq_ens)} genes.")
@@ -242,7 +261,7 @@ def main():
         lambda e: mg.get(e, {}).get("summary", "") or "No summary available.")
     df["EntrezID"] = df["ens_clean"].map(lambda e: mg.get(e, {}).get("entrez", ""))
 
-    # --- cBioPortal alteration frequencies ---
+    # cBioPortal alteration frequencies
     df["BRCA_Mutation_pct"] = ""
     df["BRCA_CNA_pct"] = ""
     df["BRCA_Altered_pct"] = ""
@@ -254,7 +273,7 @@ def main():
                   f"{len(entrez_ids)} genes ...")
             try:
                 cb = fetch_cbioportal(entrez_ids, args.cbioportal_base,
-                                      args.cbioportal_study)
+                                      args.cbioportal_study, chunk_size=args.cbio_chunk)
                 ens_to_entrez = {e: mg[e].get("entrez") for e in mg}
                 def _get(e, key):
                     ez = ens_to_entrez.get(e)
