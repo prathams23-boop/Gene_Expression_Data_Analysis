@@ -9,11 +9,19 @@ lncRNA_filter1.xlsx
 session1.RData
 mRNA WGCNA/R_data_mRNA/
 mRNA WGCNA/modules/
-mRNA WGCNA/terminal_mrna
+mRNA WGCNA/terminal_mrna.rtf
 mRNA WGCNA/hub_gene_annotation_mrna.py
 mRNA WGCNA/tables/
 mRNA WGCNA/figures/mrna_kme_bars_signed.png
 mRNA WGCNA/figures/mrna_kme_bars_unsigned.png
+lncRNA WGCNA/R_data_lncRNA/
+lncRNA WGCNA/modules/
+lncRNA WGCNA/terminal_lncrna.rtf
+lncRNA WGCNA/hub_genes/hub_gene_annotation_lncrna.py
+lncRNA WGCNA/tables/
+lncRNA WGCNA/figures/lncrna_kme_bars_signed.png
+lncRNA WGCNA/figures/lncrna_kme_bars_unsigned.png
+lncRNA WGCNA/lncrna_wgcna_session.RData
 
 
 

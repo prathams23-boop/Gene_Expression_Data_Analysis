@@ -1,0 +1,161 @@
+Module,GeneSymbol,kME,Full_Name,Aliases,EntrezID,Functional_Summary
+red,AL121832.2,0.8558,,,,No summary available.
+red,KMT2E.AS1,0.8252,,,,No summary available.
+red,YTHDF3.AS1,0.7931,,,,No summary available.
+red,AC040169.1,0.7823,,,,No summary available.
+red,AL163051.1,0.7688,,,,No summary available.
+red,AL355353.1,0.7681,,,,No summary available.
+red,AC069544.1,0.7591,,,,No summary available.
+red,AC109322.1,0.7584,,,,No summary available.
+red,AC083880.1,0.7546,,,,No summary available.
+red,AL118516.1,0.7522,,,,No summary available.
+red,AC133552.5,0.7472,,,,No summary available.
+red,SNHG19,0.729,small nucleolar RNA host gene 19,SNORD60HG,100507303,No summary available.
+red,URB1.AS1,0.7172,,,,No summary available.
+red,AC015912.3,0.7151,,,,No summary available.
+red,LINC01311,0.701,long intergenic non-protein coding RNA 1311,,,No summary available.
+red,AC067852.5,0.699,,,,No summary available.
+red,AC011445.1,0.6904,,,,No summary available.
+red,AC002470.1,0.6898,,,,No summary available.
+red,AC073195.1,0.6851,,,,No summary available.
+red,AC010331.1,0.6765,,,,No summary available.
+blue,LINC00504,0.8691,long independently transcribed non-coding RNA 504,,201853,No summary available.
+blue,CT62,0.847,cancer/testis associated 62,,196993,No summary available.
+blue,AL078582.2,0.8317,,,,No summary available.
+blue,AC092667.1,0.8073,,,,No summary available.
+blue,MIR3936HG,0.7971,MIR3936 host gene,SLC22A5-AS1,553103,No summary available.
+blue,AC013726.1,0.7959,,,,No summary available.
+blue,AC124067.4,0.7951,,,,No summary available.
+blue,AC103760.1,0.7872,,,,No summary available.
+blue,FAM198B.AS1,0.7869,,,,No summary available.
+blue,AC007255.1,0.7863,,,,No summary available.
+blue,AC106738.2,0.7814,,,,No summary available.
+blue,AC008268.1,0.7808,,,,No summary available.
+blue,AC096733.2,0.7665,,,,No summary available.
+blue,LINC02568,0.7594,long intergenic non-protein coding RNA 2568,,,No summary available.
+blue,GATA3.AS1,0.7593,,,,No summary available.
+blue,AC008663.1,0.7581,,,,No summary available.
+blue,AL356311.1,0.7566,,,,No summary available.
+blue,AL133387.1,0.7552,,,,No summary available.
+blue,MIR29B2CHG,0.7508,MIR29B2 and MIR29C host gene,,,No summary available.
+blue,LINC01843,0.749,long independently transcribed non-coding RNA 1843,Lnc-APUE,101927934,No summary available.
+brown,RAD51.AS1,0.8464,,,,No summary available.
+brown,LINC00894,0.7841,EOLA2 divergent transcript,LINC00894,100272228,No summary available.
+brown,AC087500.1,0.7742,,,,No summary available.
+brown,CCDC18.AS1,0.7717,,,,No summary available.
+brown,SH3BP5.AS1,0.7691,,,,No summary available.
+brown,SEMA3F.AS1,0.7672,,,,No summary available.
+brown,LINC00893,0.7586,EOLA1 divergent transcript,LINC00893; lnc-CPLC,100131434,No summary available.
+brown,TMEM161B.AS1,0.7554,,,,No summary available.
+brown,AC007566.1,0.7516,,,,No summary available.
+brown,AC006435.2,0.748,,,,No summary available.
+brown,AC009120.2,0.7468,,,,No summary available.
+brown,AC010201.2,0.7308,,,,No summary available.
+brown,LINC01359,0.7241,long independently transcribed non-coding RNA 1359,,101927084,No summary available.
+brown,RUFY1.AS1,0.7225,,,,No summary available.
+brown,AL021368.2,0.708,,,,No summary available.
+brown,N4BP2L2.IT2,0.7005,,,,No summary available.
+brown,SEMA6A.AS1,0.6961,,,,No summary available.
+brown,POLR2J4,0.696,RNA polymerase II subunit J4 (pseudogene),RPB11-phi,84820,No summary available.
+brown,AC010210.1,0.6903,,,,No summary available.
+brown,RNF213.AS1,0.6744,,,,No summary available.
+turquoise,NPTN.IT1,0.8583,,,,No summary available.
+turquoise,AL049840.2,0.8436,,,,No summary available.
+turquoise,AL132989.1,0.8292,,,,No summary available.
+turquoise,AC053513.2,0.8287,,,,No summary available.
+turquoise,AC022382.2,0.8282,,,,No summary available.
+turquoise,AC108010.1,0.8254,,,,No summary available.
+turquoise,AC122129.1,0.8188,,,,No summary available.
+turquoise,AC024896.1,0.8185,,,,No summary available.
+turquoise,AP003392.1,0.8124,,,,No summary available.
+turquoise,JPX,0.8118,"JPX transcript, XIST activator",DCBALD06; ENOX; LINC00183; NCRNA00183,554203,"JPX is a nonprotein-coding RNA transcribed from a gene within the X-inactivation center (XIC; MIM 314670) that appears to participate in X chromosome inactivation (Tian et al., 2010 [PubMed 21029862]).[supplied by OMIM, Feb 2011]."
+turquoise,AC015971.1,0.8029,,,,No summary available.
+turquoise,AC007878.1,0.8019,,,,No summary available.
+turquoise,AC253536.3,0.8017,,,,No summary available.
+turquoise,ALG13.AS1,0.8012,,,,No summary available.
+turquoise,AC025917.1,0.7984,,,,No summary available.
+turquoise,AC006059.1,0.798,,,,No summary available.
+turquoise,AC124944.3,0.7965,,,,No summary available.
+turquoise,AC000120.1,0.7947,,,,No summary available.
+turquoise,AL442003.1,0.7943,,,,No summary available.
+turquoise,AL031846.2,0.7856,,,,No summary available.
+pink,LINC01197,0.8092,lymphatic endothelial transcriptional regulator lncRNA 1,LINC01197,400456,No summary available.
+pink,LINC02884,0.8045,long independently transcribed non-coding RNA 2884,,105378909,No summary available.
+pink,AC096921.2,0.7892,,,,No summary available.
+pink,CADM3.AS1,0.7823,,,,No summary available.
+pink,LINC02202,0.7682,long independently transcribed non-coding RNA 2202,,101927740,No summary available.
+pink,ADAMTS9.AS2,0.7507,,,,No summary available.
+pink,LINC02587,0.7498,long independently transcribed non-coding RNA 2587,MEOX2-AS1,101927524,No summary available.
+pink,ADAMTS9.AS1,0.7306,,,,No summary available.
+pink,AC090004.2,0.7233,,,,No summary available.
+pink,AC108053.1,0.7046,,,,No summary available.
+pink,AL109741.1,0.6956,,,,No summary available.
+pink,LINC00924,0.6933,long independently transcribed non-coding RNA 924,,145820,No summary available.
+pink,LINC01697,0.6914,long independently transcribed non-coding RNA 1697,,284825,No summary available.
+pink,AL590226.1,0.6911,,,,No summary available.
+pink,TRHDE.AS1,0.6902,,,,No summary available.
+pink,LINC01537,0.6796,long independently transcribed non-coding RNA 1537,h-Hilnc,101928555,No summary available.
+pink,LINC00840,0.6794,long independently transcribed non-coding RNA 840,,100506835,No summary available.
+pink,CARMN,0.6673,cardiac mesoderm enhancer-associated non-coding RNA,,,No summary available.
+pink,LINC02185,0.6663,long intergenic non-protein coding RNA 2185,,,No summary available.
+pink,THBS4.AS1,0.6459,,,,No summary available.
+yellow,TBX5.AS1,0.8358,,,,No summary available.
+yellow,MAGI2.AS3,0.834,,,,No summary available.
+yellow,MIR100HG,0.8178,mir-100-let-7a-2-mir-125b-1 cluster host gene,AGD1; linc-NeD125; lncRNA-N2,399959,"This gene produces long non-coding RNAs that act as regulators of cell proliferation. Alternative promoter usage and splicing results in multiple transcript variants. Some transcript variants may promote growth, while others may act to negatively regulate cell division. [provided by RefSeq, May 2016]."
+yellow,ZFHX4.AS1,0.7987,,,,No summary available.
+yellow,MEG3,0.7955,maternally expressed 3,FP504; GTL2; LINC00023; Lnc-DLK1-35; NCRNA00023; PRO0518; PRO2160; onco-lncRNA-83; prebp1,55384,"This gene is a maternally expressed imprinted gene. Multiple alternatively spliced transcript variants have been transcribed from this gene and all of them are long non-coding RNAs (lncRNAs). This gene is expressed in many normal tissues, but its expression is lost in multiple cancer cell lines of various tissue origins. It inhibits tumor cell proliferation in vitro. It also interacts with the tumor suppressor p53, and regulates p53 target gene expression. Its deletion enhances angiogenesis in vivo. Many experimental evidences demonstrate that this gene is a lncRNA tumor suppressor. [provided by RefSeq, Mar 2012]."
+yellow,LINC02544,0.7906,long intergenic non-protein coding RNA 2544,,101929504,No summary available.
+yellow,AC134312.5,0.7903,,,,No summary available.
+yellow,AC009093.1,0.776,,,,No summary available.
+yellow,AP000695.1,0.7693,,,,No summary available.
+yellow,AC000403.1,0.7531,,,,No summary available.
+yellow,HAND2.AS1,0.7525,,,,No summary available.
+yellow,LINC00922,0.7467,long independently transcribed non-coding RNA 922,Lnc-LALC,283867,No summary available.
+yellow,LINC01711,0.7412,long independently transcribed non-coding RNA 1711,,79160,No summary available.
+yellow,LINC01561,0.7354,long independently transcribed non-coding RNA 1561,C10orf85,404216,No summary available.
+yellow,LINC01638,0.7323,long independently transcribed non-coding RNA 1638,lncRNA4114,105372978,No summary available.
+yellow,NR2F1.AS1,0.7279,,,,No summary available.
+yellow,EMX2OS,0.7276,EMX2 opposite strand/antisense RNA,EMX2-AS1; NCRNA00045,196047,No summary available.
+yellow,AL049838.1,0.7256,,,,No summary available.
+yellow,LINC02126,0.7232,long independently transcribed non-coding RNA 2126,,101927650,No summary available.
+yellow,MAP3K4.AS1,0.7186,,,,No summary available.
+black,PCED1B.AS1,0.8459,,,,No summary available.
+black,MIR155HG,0.8189,MIR155 host gene,BIC; BIC-155; LncRNA-SERB; MIRHG2; NCRNA00172; miPEP155,114614,"This gene represents a microRNA host gene. The long RNA transcribed from this gene is expressed at high levels in lymphoma and may function as an oncogene. [provided by RefSeq, Dec 2017]."
+black,AC004585.1,0.8186,,,,No summary available.
+black,LINC00996,0.8133,long independently transcribed non-coding RNA 996,,285972,No summary available.
+black,LINC01215,0.8062,long independently transcribed non-coding RNA 1215,,101929623,No summary available.
+black,FAM30A,0.7919,family with sequence similarity 30 member A,C14orf110; HSPC053; KIAA0125,9834,No summary available.
+black,LINC01857,0.7583,long independently transcribed non-coding RNA 1857,,102724714,No summary available.
+black,LINC02273,0.7579,long independently transcribed non-coding RNA 2273,,100996286,No summary available.
+black,AL590764.1,0.7571,,,,No summary available.
+black,TRBV11.2,0.756,,,,No summary available.
+black,LINC02446,0.755,long independently transcribed non-coding RNA 2446,,101060038,No summary available.
+black,LINC01871,0.7394,long independently transcribed non-coding RNA 1871,,101929531,No summary available.
+black,LINC02328,0.7334,long independently transcribed non-coding RNA 2328,,101928767,No summary available.
+black,AC004687.1,0.7254,,,,No summary available.
+black,AC004847.1,0.7171,,,,No summary available.
+black,MIAT,0.6916,myocardial infarction associated transcript,C22orf35; GOMAFU; LINC00066; NCRNA00066; RNCR2; lncRNA-MIAT,440823,"This gene encodes a spliced long non-coding RNA that may constitute a component of the nuclear matrix. Altered expression of this locus has been reported to be associated with a susceptibility to myocardial infarction. It has also been proposed that pathways involving this transcript may contribute to the pathophysiology of schizophrenia. A similar gene in mouse has been associated with retinal cell fate determination. Alternatively spliced transcript variants have been identified. [provided by RefSeq, Dec 2014]."
+black,AC108134.3,0.6897,,,,No summary available.
+black,AC083837.1,0.6867,,,,No summary available.
+black,CHRM3.AS2,0.6833,,,,No summary available.
+black,AC022706.1,0.6776,,,,No summary available.
+green,LINC02188,0.8476,long independently transcribed non-coding RNA 2188,,102724344,No summary available.
+green,SNHG26,0.8263,small nucleolar RNA host gene 26,,109729180,No summary available.
+green,FOXCUT,0.8258,FOXC1 upstream transcript,,,No summary available.
+green,ROCR,0.8122,regulator of chondrogenesis RNA,,,No summary available.
+green,AP000851.1,0.7523,,,,No summary available.
+green,LINC02613,0.7505,long independently transcribed non-coding RNA 2613,,101929596,No summary available.
+green,LINC01819,0.7399,long independently transcribed non-coding RNA 1819,KPRT4; LINC02590,102723854,No summary available.
+green,AC008514.1,0.7282,,,,No summary available.
+green,LINC02487,0.7281,long independently transcribed non-coding RNA 2487,,441178,No summary available.
+green,AL109809.4,0.7243,,,,No summary available.
+green,CASC8,0.7198,cancer susceptibility 8,CARLO1; CARLo-1; LINC00860,727677,No summary available.
+green,AL136366.1,0.7117,,,,No summary available.
+green,PICSAR,0.7116,P38 inhibited cutaneous squamous cell carcinoma associated lincRNA,C21orf113; LINC00162; NCRNA00162; NLC1-C; NLC1C; PRED74; lnc-NLC1-C,378825,No summary available.
+green,VIM.AS1,0.7115,,,,No summary available.
+green,LINC01354,0.7048,long independently transcribed non-coding RNA 1354,,100506795,No summary available.
+green,LINC00092,0.6834,long independently transcribed non-coding RNA 92,NCRNA00092,100188953,No summary available.
+green,AC022509.1,0.6805,,,,No summary available.
+green,LINC01152,0.6702,long independently transcribed non-coding RNA 1152,CMPD; TCONS_00025128,102606463,No summary available.
+green,CEROX1,0.6678,cytoplasmic endogenous regulator of oxidative phosphorylation 1,,115804232,No summary available.
+green,LINC00839,0.6596,long independently transcribed non-coding RNA 839,,84856,No summary available.
