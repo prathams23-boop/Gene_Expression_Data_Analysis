@@ -4,3 +4,18 @@ normal_signed_1_1-block.1.RData
 normal_signed_1_1-block.2.RData
 permutedStats-actualModules.RData
 filtered_tumor_vst.csv
+mRNA_filter1.xlsx
+lncRNA_filter1.xlsx
+session1.RData
+mRNA WGCNA/R_data_mRNA/
+mRNA WGCNA/modules/
+mRNA WGCNA/terminal_mrna
+mRNA WGCNA/hub_gene_annotation_mrna.py
+mRNA WGCNA/tables/
+mRNA WGCNA/figures/mrna_kme_bars_signed.png
+mRNA WGCNA/figures/mrna_kme_bars_unsigned.png
+
+
+
+
+

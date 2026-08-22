@@ -1,0 +1,1337 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2870
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 > # WGCNA pipeline for TCGA-BRCA mRNA expression data\
+> # tumour-only cohort (963 samples), PAM50 subtype used as sample trait\
+> # gene selection is a MAD based variance filter\
+> \
+> \
+> library(readxl)\
+> library(DESeq2)\
+> library(WGCNA)\
+> library(matrixStats)\
+> library(gplots)\
+> library(ggplot2)\
+> library(dplyr)\
+> \
+> options(stringsAsFactors = FALSE)\
+> allowWGCNAThreads()\
+Allowing multi-threading with up to 10 threads.\
+> \
+> \
+> MRNA_XLSX      <- "/Users/PrathamShah/Desktop/IIITH/Codes/WGCNA_Pipeline/Gene_Expression_Data_Analysis/mRNA_filter1.xlsx"\
+> OUT_DIR        <- "/Users/PrathamShah/Desktop/IIITH/Codes/WGCNA_Pipeline/Gene_Expression_Data_Analysis/mRNA WGCNA"\
+> \
+> # low-expression filter: keep a gene if it has at least MIN_COUNT reads\
+> # in at least MIN_FRAC of samples\
+> MIN_COUNT      <- 10\
+> MIN_FRAC       <- 0.50\
+> \
+> # number of genes carried into WGCNA after ranking by MAD\
+> # set to NA to keep everything that survives the expression filter\
+> N_GENES_WGCNA  <- NA\
+> \
+> # single-block network construction, do not leave this at the default 5000\
+> MAX_BLOCK_SIZE <- 12000\
+> \
+> N_HUBS         <- 20\
+> \
+> dir.create(OUT_DIR, showWarnings = FALSE)\
+> dir.create(file.path(OUT_DIR, "figures"),   showWarnings = FALSE)\
+> dir.create(file.path(OUT_DIR, "tables"),    showWarnings = FALSE)\
+> dir.create(file.path(OUT_DIR, "enrich"),    showWarnings = FALSE)\
+> dir.create(file.path(OUT_DIR, "modules"),   showWarnings = FALSE)\
+> dir.create(file.path(OUT_DIR, "hub_genes"), showWarnings = FALSE)\
+> \
+> \
+> # loading data\
+> \
+> \
+> mrna_raw <- as.data.frame(read_excel(MRNA_XLSX, sheet = 1))\
+>                                                                                                  \
+> rownames(mrna_raw) <- mrna_raw$Sample_ID\
+> mrna_raw$Sample_ID <- NULL\
+> \
+> cat("Raw dimensions (samples x columns):", dim(mrna_raw), "\\n")\
+Raw dimensions (samples x columns): 963 8693 \
+> \
+> \
+> stopifnot("Subtype" %in% colnames(mrna_raw))\
+> \
+> subtype_mrna <- mrna_raw$Subtype\
+> names(subtype_mrna) <- rownames(mrna_raw)\
+> \
+> # NOTE: "TNBC" in this file is the Basal PAM50 class under a different\
+> # name. Relabeling so downstream tables match paper_BRCA_Subtype_PAM50.\
+> subtype_mrna[subtype_mrna == "TNBC"] <- "Basal"\
+> print(table(subtype_mrna))\
+subtype_mrna\
+Basal  HER2  LumA  LumB \
+  170    75   528   190 \
+> \
+> expr_mrna <- mrna_raw[, setdiff(colnames(mrna_raw), "Subtype"), drop = FALSE]\
+> expr_mrna <- as.matrix(expr_mrna)\
+> \
+> # typecasting for DESeq2\
+> mode(expr_mrna) <- "numeric"\
+> stopifnot(all(expr_mrna == round(expr_mrna)))\
+> expr_mrna <- round(expr_mrna)\
+> storage.mode(expr_mrna) <- "integer"\
+> \
+> cat("Count matrix (samples x genes):", dim(expr_mrna), "\\n")\
+Count matrix (samples x genes): 963 8692 \
+> cat("Fraction of zero entries:", round(mean(expr_mrna == 0), 4), "\\n")\
+Fraction of zero entries: 0.051 \
+> cat("Library size median / min / max:",\
++     median(rowSums(expr_mrna)), min(rowSums(expr_mrna)), max(rowSums(expr_mrna)), "\\n")\
+Library size median / min / max: 22730286 7337457 45692161 \
+> \
+> \
+> counts_mrna <- t(expr_mrna)   # genes x samples\
+> cat("DESeq2 input (genes x samples):", dim(counts_mrna), "\\n")\
+DESeq2 input (genes x samples): 8692 963 \
+> \
+> \
+> # low expression filter\
+> \
+> keep_expressed <- rowMeans(counts_mrna >= MIN_COUNT) >= MIN_FRAC\
+> cat("Genes passing expression filter:", sum(keep_expressed),\
++     "of", nrow(counts_mrna), "\\n")\
+Genes passing expression filter: 7220 of 8692 \
+> \
+> counts_mrna <- counts_mrna[keep_expressed, ]\
+> \
+> \
+> # normalisation and vst\
+> # design = ~1 because there is no group comparison here. DESeq2 is used\
+> # only for size factor estimation and the dispersion fit that VST needs.\
+> \
+> coldata_mrna <- data.frame(\
++   row.names = colnames(counts_mrna),\
++   Subtype   = factor(subtype_mrna[colnames(counts_mrna)])\
++ )\
+> stopifnot(identical(rownames(coldata_mrna), colnames(counts_mrna)))\
+> \
+> dds_mrna <- DESeqDataSetFromMatrix(\
++   countData = counts_mrna,\
++   colData   = coldata_mrna,\
++   design    = ~ 1\
++ )\
+> \
+> dds_mrna <- estimateSizeFactors(dds_mrna)\
+> \
+> cat("Size factor range:", round(range(sizeFactors(dds_mrna)), 3), "\\n")\
+Size factor range: 0.374 2.048 \
+> summary(sizeFactors(dds_mrna))\
+   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. \
+ 0.3739  0.8530  1.0294  1.0329  1.2077  2.0483 \
+> \
+> # saving the size factors, the lncRNA script will reuse them, since the\
+> # lncRNA submatrix is too sparse to estimate depth reliably on its own\
+> saveRDS(sizeFactors(dds_mrna),\
++         file.path(OUT_DIR, "mrna_size_factors.rds"))\
+> \
+> dds_mrna <- estimateDispersions(dds_mrna)\
+gene-wise dispersion estimates\
+mean-dispersion relationship\
+final dispersion estimates\
+> \
+> \
+> vsd_mrna  <- varianceStabilizingTransformation(dds_mrna, blind = TRUE)\
+> vst_mrna  <- assay(vsd_mrna)   # genes x samples\
+> \
+> cat("VST matrix (genes x samples):", dim(vst_mrna), "\\n")\
+VST matrix (genes x samples): 7220 963 \
+> \
+> \
+> saveRDS(vst_mrna, file.path(OUT_DIR, "mrna_vst_all_expressed.rds"))\
+> \
+> \
+> # GENE SELECTION BY MAD\
+> gene_mad <- rowMads(vst_mrna)\
+> names(gene_mad) <- rownames(vst_mrna)\
+> \
+> png(file.path(OUT_DIR, "figures", "mrna_mad_distribution.png"),\
++     width = 1400, height = 900, res = 150)\
+> hist(gene_mad, breaks = 80,\
++      main = "mRNA gene-level MAD (VST scale)",\
++      xlab = "Median absolute deviation")\
+> if (!is.na(N_GENES_WGCNA)) \{\
++   abline(v = sort(gene_mad, decreasing = TRUE)[min(N_GENES_WGCNA, length(gene_mad))],\
++          col = "red", lty = 2, lwd = 2)\
++ \}\
+> dev.off()\
+RStudioGD \
+        2 \
+> \
+> if (is.na(N_GENES_WGCNA)) \{\
++   selected_genes <- names(gene_mad)\
++ \} else \{\
++   selected_genes <- names(sort(gene_mad, decreasing = TRUE))[1:min(N_GENES_WGCNA, length(gene_mad))]\
++ \}\
+> \
+> filtered_mrna <- vst_mrna[selected_genes, ]\
+> cat("Genes going into WGCNA:", nrow(filtered_mrna), "\\n")\
+Genes going into WGCNA: 7220 \
+> \
+> # WGCNA wants samples x genes. Keep this orientation from here on.\
+> datExpr_mrna <- t(filtered_mrna)\
+> cat("WGCNA input (samples x genes):", dim(datExpr_mrna), "\\n")\
+WGCNA input (samples x genes): 963 7220 \
+> \
+> \
+> \
+> \
+> \
+> gsg_mrna <- goodSamplesGenes(datExpr_mrna, verbose = 3)\
+ Flagging genes and samples with too many missing values...\
+  ..step 1\
+> if (!gsg_mrna$allOK) \{\
++   cat("Removing", sum(!gsg_mrna$goodGenes),   "genes and",\
++       sum(!gsg_mrna$goodSamples), "samples flagged by goodSamplesGenes\\n")\
++   datExpr_mrna <- datExpr_mrna[gsg_mrna$goodSamples, gsg_mrna$goodGenes]\
++ \}\
+> \
+> # sample clustering to spot gross outlier arrays\
+> sampleTree_mrna <- hclust(dist(datExpr_mrna), method = "average")\
+> \
+> png(file.path(OUT_DIR, "figures", "mrna_sample_clustering.png"),\
++     width = 2400, height = 900, res = 150)\
+> plot(sampleTree_mrna,\
++      main = "mRNA sample clustering (outlier detection)",\
++      sub = "", xlab = "", cex.lab = 1.2, cex.axis = 1.2, cex.main = 1.4,\
++      labels = FALSE)\
+> # draw a candidate cut line, adjust after looking at the plot\
+> CUT_HEIGHT_MRNA <- NA   # set to a numeric height to actually cut\
+> if (!is.na(CUT_HEIGHT_MRNA)) abline(h = CUT_HEIGHT_MRNA, col = "red", lty = 2)\
+> dev.off()\
+RStudioGD \
+        2 \
+> \
+> if (!is.na(CUT_HEIGHT_MRNA)) \{\
++   clust_mrna   <- cutreeStatic(sampleTree_mrna, cutHeight = CUT_HEIGHT_MRNA, minSize = 10)\
++   keep_samples <- clust_mrna == names(sort(table(clust_mrna[clust_mrna != 0]), decreasing = TRUE))[1]\
++   cat("Dropping", sum(!keep_samples), "outlier samples\\n")\
++   datExpr_mrna <- datExpr_mrna[keep_samples, ]\
++ \}\
+> \
+> subtype_mrna <- subtype_mrna[rownames(datExpr_mrna)]\
+> cat("Final cohort:", nrow(datExpr_mrna), "samples,", ncol(datExpr_mrna), "genes\\n")\
+Final cohort: 963 samples, 7220 genes\
+> \
+> \
+> # sft selection\
+> \
+> powers <- c(1:10, seq(from = 12, to = 20, by = 2))\
+> \
+> sft_mrna_signed <- pickSoftThreshold(\
++   datExpr_mrna,\
++   powerVector = powers,\
++   networkType = "signed",\
++   verbose     = 5\
++ )\
+pickSoftThreshold: will use block size 6196.\
+ pickSoftThreshold: calculating connectivity for given powers...\
+   ..working on genes 1 through 6196 of 7220\
+   ..working on genes 6197 through 7220 of 7220\
+   Power SFT.R.sq  slope truncated.R.sq mean.k. median.k. max.k.\
+1      1   0.0294  -8.04          0.835 3620.00  3620.000 3740.0\
+2      2   0.4620 -17.70          0.933 1890.00  1880.000 2090.0\
+3      3   0.6480 -12.30          0.986 1020.00  1010.000 1250.0\
+4      4   0.6540  -8.05          0.989  568.00   561.000  793.0\
+5      5   0.6460  -5.54          0.988  327.00   320.000  525.0\
+6      6   0.6390  -4.07          0.980  194.00   188.000  360.0\
+7      7   0.6530  -3.20          0.967  119.00   113.000  256.0\
+8      8   0.6470  -2.78          0.916   75.10    69.100  188.0\
+9      9   0.7550  -2.23          0.965   48.70    43.200  141.0\
+10    10   0.8260  -2.09          0.982   32.50    27.500  113.0\
+11    12   0.8750  -2.11          0.980   15.60    11.700   82.4\
+12    14   0.9170  -2.04          0.984    8.25     5.200   63.6\
+13    16   0.9400  -1.94          0.986    4.73     2.420   50.7\
+14    18   0.9450  -1.86          0.982    2.90     1.180   41.4\
+15    20   0.9640  -1.74          0.990    1.89     0.591   34.3\
+> \
+> sft_mrna_unsigned <- pickSoftThreshold(\
++   datExpr_mrna,\
++   powerVector = powers,\
++   networkType = "unsigned",\
++   verbose     = 5\
++ )\
+pickSoftThreshold: will use block size 6196.\
+ pickSoftThreshold: calculating connectivity for given powers...\
+   ..working on genes 1 through 6196 of 7220\
+   ..working on genes 6197 through 7220 of 7220\
+   Power SFT.R.sq  slope truncated.R.sq  mean.k. median.k. max.k.\
+1      1   0.0756  0.738          0.876 1110.000  1.12e+03 1870.0\
+2      2   0.2730 -0.971          0.892  274.000  2.67e+02  700.0\
+3      3   0.5770 -1.450          0.946   89.000  7.82e+01  317.0\
+4      4   0.7130 -1.620          0.965   34.800  2.62e+01  166.0\
+5      5   0.8300 -1.610          0.985   15.700  9.63e+00   98.5\
+6      6   0.8990 -1.660          0.987    8.020  3.83e+00   69.4\
+7      7   0.9230 -1.700          0.981    4.500  1.62e+00   54.7\
+8      8   0.9340 -1.690          0.978    2.740  7.32e-01   44.4\
+9      9   0.9570 -1.620          0.989    1.780  3.48e-01   36.6\
+10    10   0.9660 -1.580          0.988    1.220  1.72e-01   30.5\
+11    12   0.9760 -1.460          0.994    0.640  4.66e-02   21.9\
+12    14   0.9740 -1.400          0.991    0.377  1.35e-02   16.2\
+13    16   0.9700 -1.380          0.993    0.239  4.13e-03   13.0\
+14    18   0.9580 -1.370          0.987    0.160  1.35e-03   10.6\
+15    20   0.9570 -1.360          0.988    0.111  4.47e-04    8.8\
+> \
+> print(sft_mrna_signed$fitIndices)\
+   Power   SFT.R.sq      slope truncated.R.sq     mean.k.   median.k.     max.k.\
+1      1 0.02939911  -8.041918      0.8348878 3622.900622 3621.462301 3741.62743\
+2      2 0.46150848 -17.748478      0.9333987 1886.763114 1877.608273 2087.82736\
+3      3 0.64808953 -12.261591      0.9863418 1017.632991 1010.356085 1252.46075\
+4      4 0.65370357  -8.053537      0.9891977  567.559202  561.078842  793.25246\
+5      5 0.64633592  -5.537796      0.9881574  326.926140  320.220011  525.04329\
+6      6 0.63897085  -4.065802      0.9804586  194.295802  187.933537  360.35748\
+7      7 0.65291947  -3.198933      0.9674242  119.027758  112.683028  256.35111\
+8      8 0.64672946  -2.784289      0.9160120   75.093529   69.109824  187.96975\
+9      9 0.75494752  -2.226167      0.9647778   48.741652   43.184473  141.25711\
+10    10 0.82619672  -2.086666      0.9820015   32.514261   27.482889  112.86526\
+11    12 0.87542066  -2.110340      0.9799222   15.628974   11.655563   82.39556\
+12    14 0.91696327  -2.040168      0.9843769    8.250596    5.203071   63.56521\
+13    16 0.94008073  -1.939168      0.9857206    4.726807    2.419401   50.70834\
+14    18 0.94489919  -1.859532      0.9819055    2.903652    1.177748   41.35567\
+15    20 0.96362030  -1.743317      0.9902455    1.891037    0.591262   34.26515\
+> print(sft_mrna_unsigned$fitIndices)\
+   Power   SFT.R.sq      slope truncated.R.sq      mean.k.    median.k.      max.k.\
+1      1 0.07561942  0.7378173      0.8764385 1106.5972079 1.121870e+03 1866.214782\
+2      2 0.27298115 -0.9713311      0.8918702  274.4499653 2.665436e+02  699.768004\
+3      3 0.57662884 -1.4527302      0.9459675   88.9663900 7.816685e+01  317.223598\
+4      4 0.71332324 -1.6228807      0.9645618   34.8012812 2.615675e+01  165.961733\
+5      5 0.83045830 -1.6079963      0.9848972   15.7490496 9.630267e+00   98.516809\
+6      6 0.89882198 -1.6595873      0.9871685    8.0218142 3.830058e+00   69.399106\
+7      7 0.92307566 -1.7046943      0.9810481    4.5036457 1.622337e+00   54.725397\
+8      8 0.93378577 -1.6942118      0.9780071    2.7387860 7.323230e-01   44.393746\
+9      9 0.95697652 -1.6235208      0.9887836    1.7773992 3.476359e-01   36.589562\
+10    10 0.96631321 -1.5758075      0.9884448    1.2156032 1.724287e-01   30.531407\
+11    12 0.97638277 -1.4638981      0.9941290    0.6399464 4.656381e-02   21.868032\
+12    14 0.97403966 -1.4011908      0.9910226    0.3765295 1.352206e-02   16.249267\
+13    16 0.97026904 -1.3826777      0.9925426    0.2388062 4.130942e-03   12.971428\
+14    18 0.95773247 -1.3724454      0.9871493    0.1597443 1.349372e-03   10.588221\
+15    20 0.95679413 -1.3616585      0.9875934    0.1111992 4.466630e-04    8.795608\
+> \
+> # scale independence and mean connectivity plots\
+> cex1 <- 0.9\
+> \
+> png(file.path(OUT_DIR, "figures", "mrna_soft_threshold.png"),\
++     width = 2000, height = 1600, res = 160)\
+> par(mfrow = c(2, 2))\
+> \
+> plot(sft_mrna_unsigned$fitIndices[, 1],\
++      -sign(sft_mrna_unsigned$fitIndices[, 3]) * sft_mrna_unsigned$fitIndices[, 2],\
++      xlab = "Soft Threshold (power)",\
++      ylab = "Scale Free Topology Model Fit, signed R^2",\
++      type = "n", main = "Scale independence (mRNA, Unsigned)")\
+> text(sft_mrna_unsigned$fitIndices[, 1],\
++      -sign(sft_mrna_unsigned$fitIndices[, 3]) * sft_mrna_unsigned$fitIndices[, 2],\
++      labels = powers, cex = cex1, col = "red")\
+> abline(h = 0.90, col = "red", lty = 2)\
+> abline(h = 0.80, col = "blue", lty = 3)\
+> \
+> plot(sft_mrna_signed$fitIndices[, 1],\
++      -sign(sft_mrna_signed$fitIndices[, 3]) * sft_mrna_signed$fitIndices[, 2],\
++      xlab = "Soft Threshold (power)",\
++      ylab = "Scale Free Topology Model Fit, signed R^2",\
++      type = "n", main = "Scale independence (mRNA, Signed)")\
+> text(sft_mrna_signed$fitIndices[, 1],\
++      -sign(sft_mrna_signed$fitIndices[, 3]) * sft_mrna_signed$fitIndices[, 2],\
++      labels = powers, cex = cex1, col = "red")\
+> abline(h = 0.90, col = "red", lty = 2)\
+> abline(h = 0.80, col = "blue", lty = 3)\
+> \
+> plot(sft_mrna_unsigned$fitIndices[, 1], sft_mrna_unsigned$fitIndices[, 5],\
++      xlab = "Soft Threshold (power)", ylab = "Mean Connectivity",\
++      type = "n", main = "Mean connectivity (mRNA, Unsigned)")\
+> text(sft_mrna_unsigned$fitIndices[, 1], sft_mrna_unsigned$fitIndices[, 5],\
++      labels = powers, cex = cex1, col = "red")\
+> \
+> plot(sft_mrna_signed$fitIndices[, 1], sft_mrna_signed$fitIndices[, 5],\
++      xlab = "Soft Threshold (power)", ylab = "Mean Connectivity",\
++      type = "n", main = "Mean connectivity (mRNA, Signed)")\
+> text(sft_mrna_signed$fitIndices[, 1], sft_mrna_signed$fitIndices[, 5],\
++      labels = powers, cex = cex1, col = "red")\
+> \
+> par(mfrow = c(1, 1))\
+> dev.off()\
+RStudioGD \
+        2 \
+> \
+> # helper: lowest power crossing an R^2 target with negative slope\
+> pick_power <- function(sft, target = 0.90, fallback) \{\
++   fi  <- sft$fitIndices\
++   r2  <- -sign(fi[, 3]) * fi[, 2]\
++   ok  <- which(r2 >= target)\
++   if (length(ok) == 0) \{\
++     cat("  no power reaches R^2 =", target, ", falling back to", fallback, "\\n")\
++     return(fallback)\
++   \}\
++   fi[min(ok), 1]\
++ \}\
+> \
+> power_mrna_signed   <- pick_power(sft_mrna_signed,   0.90, fallback = 12)\
+> power_mrna_unsigned <- pick_power(sft_mrna_unsigned, 0.90, fallback = 6)\
+> \
+> cat("Chosen power, signed:",   power_mrna_signed,   "\\n")\
+Chosen power, signed: 14 \
+> cat("Chosen power, unsigned:", power_mrna_unsigned, "\\n")\
+Chosen power, unsigned: 7 \
+> # network construction\
+> \
+> cor <- WGCNA::cor \
+> \
+> # first run\
+> netwk_mrna_signed <- blockwiseModules(\
++   datExpr_mrna,\
++   power           = power_mrna_signed,\
++   networkType     = "signed",\
++   TOMType         = "signed",\
++   deepSplit       = 2,\
++   minModuleSize   = 30,\
++   mergeCutHeight  = 0.25,\
++   maxBlockSize    = MAX_BLOCK_SIZE,\
++   numericLabels   = TRUE,\
++   saveTOMs        = TRUE,\
++   saveTOMFileBase = file.path(OUT_DIR, "mrna_signed_TOM"),\
++   verbose         = 3\
++ )\
+ Calculating module eigengenes block-wise from all genes\
+   Flagging genes and samples with too many missing values...\
+    ..step 1\
+ ..Working on block 1 .\
+    TOM calculation: adjacency..\
+    ..will use 10 parallel threads.\
+     Fraction of slow calculations: 0.000000\
+    ..connectivity..\
+    ..matrix multiplication (system BLAS)..\
+    ..normalization..\
+    ..done.\
+   ..saving TOM for block 1 into file /Users/PrathamShah/Desktop/IIITH/Codes/WGCNA_Pipeline/Gene_Expression_Data_Analysis/mRNA WGCNA/mrna_signed_TOM-block.1.RData\
+ ....clustering..\
+ ....detecting modules..\
+ ....calculating module eigengenes..\
+ ....checking kME in modules..\
+     ..removing 19 genes from module 1 because their KME is too low.\
+     ..removing 2 genes from module 2 because their KME is too low.\
+     ..removing 19 genes from module 3 because their KME is too low.\
+     ..removing 4 genes from module 9 because their KME is too low.\
+     ..removing 6 genes from module 11 because their KME is too low.\
+  ..reassigning 132 genes from module 1 to modules with higher KME.\
+  ..reassigning 42 genes from module 2 to modules with higher KME.\
+  ..reassigning 67 genes from module 3 to modules with higher KME.\
+  ..reassigning 75 genes from module 4 to modules with higher KME.\
+  ..reassigning 48 genes from module 5 to modules with higher KME.\
+  ..reassigning 3 genes from module 6 to modules with higher KME.\
+  ..reassigning 23 genes from module 7 to modules with higher KME.\
+  ..reassigning 22 genes from module 8 to modules with higher KME.\
+  ..reassigning 18 genes from module 9 to modules with higher KME.\
+  ..reassigning 26 genes from module 10 to modules with higher KME.\
+  ..reassigning 14 genes from module 11 to modules with higher KME.\
+  ..reassigning 11 genes from module 12 to modules with higher KME.\
+  ..reassigning 7 genes from module 13 to modules with higher KME.\
+  ..reassigning 2 genes from module 14 to modules with higher KME.\
+  ..reassigning 3 genes from module 15 to modules with higher KME.\
+  ..reassigning 2 genes from module 16 to modules with higher KME.\
+  ..reassigning 3 genes from module 17 to modules with higher KME.\
+ ..merging modules that are too close..\
+     mergeCloseModules: Merging modules whose distance is less than 0.25\
+       Calculating new MEs...\
+> \
+> netwk_mrna_unsigned <- blockwiseModules(\
++   datExpr_mrna,\
++   power           = power_mrna_unsigned,\
++   networkType     = "unsigned",\
++   TOMType         = "unsigned",\
++   deepSplit       = 2,\
++   minModuleSize   = 30,\
++   mergeCutHeight  = 0.25,\
++   maxBlockSize    = MAX_BLOCK_SIZE,\
++   numericLabels   = TRUE,\
++   saveTOMs        = TRUE,\
++   saveTOMFileBase = file.path(OUT_DIR, "mrna_unsigned_TOM"),\
++   verbose         = 3\
++ )\
+ Calculating module eigengenes block-wise from all genes\
+   Flagging genes and samples with too many missing values...\
+    ..step 1\
+ ..Working on block 1 .\
+    TOM calculation: adjacency..\
+    ..will use 10 parallel threads.\
+     Fraction of slow calculations: 0.000000\
+    ..connectivity..\
+    ..matrix multiplication (system BLAS)..\
+    ..normalization..\
+    ..done.\
+   ..saving TOM for block 1 into file /Users/PrathamShah/Desktop/IIITH/Codes/WGCNA_Pipeline/Gene_Expression_Data_Analysis/mRNA WGCNA/mrna_unsigned_TOM-block.1.RData\
+ ....clustering..\
+ ....detecting modules..\
+ ....calculating module eigengenes..\
+ ....checking kME in modules..\
+     ..removing 1 genes from module 1 because their KME is too low.\
+     ..removing 2 genes from module 4 because their KME is too low.\
+     ..removing 1 genes from module 10 because their KME is too low.\
+  ..reassigning 87 genes from module 1 to modules with higher KME.\
+  ..reassigning 68 genes from module 2 to modules with higher KME.\
+  ..reassigning 32 genes from module 3 to modules with higher KME.\
+  ..reassigning 50 genes from module 4 to modules with higher KME.\
+  ..reassigning 41 genes from module 5 to modules with higher KME.\
+  ..reassigning 11 genes from module 6 to modules with higher KME.\
+  ..reassigning 26 genes from module 7 to modules with higher KME.\
+  ..reassigning 12 genes from module 8 to modules with higher KME.\
+  ..reassigning 10 genes from module 9 to modules with higher KME.\
+  ..reassigning 7 genes from module 10 to modules with higher KME.\
+  ..reassigning 5 genes from module 11 to modules with higher KME.\
+  ..reassigning 6 genes from module 14 to modules with higher KME.\
+  ..reassigning 2 genes from module 16 to modules with higher KME.\
+  ..reassigning 1 genes from module 17 to modules with higher KME.\
+  ..reassigning 1 genes from module 18 to modules with higher KME.\
+ ..merging modules that are too close..\
+     mergeCloseModules: Merging modules whose distance is less than 0.25\
+       Calculating new MEs...\
+> \
+> cat("Signed, first run module sizes:\\n");   print(table(netwk_mrna_signed$colors))\
+Signed, first run module sizes:\
+\
+   0    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15 \
+2365  732  661  593  553  438  388  357  328  281  213   89   82   58   49   33 \
+> cat("Unsigned, first run module sizes:\\n"); print(table(netwk_mrna_unsigned$colors))\
+Unsigned, first run module sizes:\
+\
+   0    1    2    3    4    5    6    7    8    9   10   11   12   13   14 \
+3595  685  524  480  437  400  367  219  210   67   60   56   51   38   31 \
+> # tuned run\
+> # balanced modules. Target is roughly 5 to 12 non-grey modules.\
+> netwk_mrna_signed_1 <- blockwiseModules(\
++   datExpr_mrna,\
++   power           = power_mrna_signed,\
++   networkType     = "signed",\
++   TOMType         = "signed",\
++   deepSplit       = 1,\
++   minModuleSize   = 50,\
++   mergeCutHeight  = 0.25,\
++   maxBlockSize    = MAX_BLOCK_SIZE,\
++   numericLabels   = TRUE,\
++   saveTOMs        = TRUE,\
++   saveTOMFileBase = file.path(OUT_DIR, "mrna_signed_1_TOM"),\
++   verbose         = 3\
++ )\
+ Calculating module eigengenes block-wise from all genes\
+   Flagging genes and samples with too many missing values...\
+    ..step 1\
+ ..Working on block 1 .\
+    TOM calculation: adjacency..\
+    ..will use 10 parallel threads.\
+     Fraction of slow calculations: 0.000000\
+    ..connectivity..\
+    ..matrix multiplication (system BLAS)..\
+    ..normalization..\
+    ..done.\
+   ..saving TOM for block 1 into file /Users/PrathamShah/Desktop/IIITH/Codes/WGCNA_Pipeline/Gene_Expression_Data_Analysis/mRNA WGCNA/mrna_signed_1_TOM-block.1.RData\
+ ....clustering..\
+ ....detecting modules..\
+ ....calculating module eigengenes..\
+ ....checking kME in modules..\
+     ..removing 54 genes from module 1 because their KME is too low.\
+     ..removing 3 genes from module 2 because their KME is too low.\
+     ..removing 4 genes from module 3 because their KME is too low.\
+     ..removing 4 genes from module 4 because their KME is too low.\
+     ..removing 41 genes from module 6 because their KME is too low.\
+     ..removing 6 genes from module 7 because their KME is too low.\
+  ..reassigning 60 genes from module 1 to modules with higher KME.\
+  ..reassigning 40 genes from module 2 to modules with higher KME.\
+  ..reassigning 29 genes from module 3 to modules with higher KME.\
+  ..reassigning 36 genes from module 4 to modules with higher KME.\
+  ..reassigning 28 genes from module 5 to modules with higher KME.\
+  ..reassigning 40 genes from module 6 to modules with higher KME.\
+  ..reassigning 5 genes from module 7 to modules with higher KME.\
+  ..reassigning 1 genes from module 9 to modules with higher KME.\
+ ..merging modules that are too close..\
+     mergeCloseModules: Merging modules whose distance is less than 0.25\
+       Calculating new MEs...\
+> \
+> netwk_mrna_unsigned_1 <- blockwiseModules(\
++   datExpr_mrna,\
++   power           = power_mrna_unsigned,\
++   networkType     = "unsigned",\
++   TOMType         = "unsigned",\
++   deepSplit       = 1,\
++   minModuleSize   = 50,\
++   mergeCutHeight  = 0.25,\
++   maxBlockSize    = MAX_BLOCK_SIZE,\
++   numericLabels   = TRUE,\
++   saveTOMs        = TRUE,\
++   saveTOMFileBase = file.path(OUT_DIR, "mrna_unsigned_1_TOM"),\
++   verbose         = 3\
++ )\
+ Calculating module eigengenes block-wise from all genes\
+   Flagging genes and samples with too many missing values...\
+    ..step 1\
+ ..Working on block 1 .\
+    TOM calculation: adjacency..\
+    ..will use 10 parallel threads.\
+     Fraction of slow calculations: 0.000000\
+    ..connectivity..\
+    ..matrix multiplication (system BLAS)..\
+    ..normalization..\
+    ..done.\
+   ..saving TOM for block 1 into file /Users/PrathamShah/Desktop/IIITH/Codes/WGCNA_Pipeline/Gene_Expression_Data_Analysis/mRNA WGCNA/mrna_unsigned_1_TOM-block.1.RData\
+ ....clustering..\
+ ....detecting modules..\
+ ....calculating module eigengenes..\
+ ....checking kME in modules..\
+     ..removing 13 genes from module 1 because their KME is too low.\
+     ..removing 11 genes from module 2 because their KME is too low.\
+     ..removing 2 genes from module 4 because their KME is too low.\
+  ..reassigning 31 genes from module 1 to modules with higher KME.\
+  ..reassigning 21 genes from module 2 to modules with higher KME.\
+  ..reassigning 55 genes from module 3 to modules with higher KME.\
+  ..reassigning 21 genes from module 4 to modules with higher KME.\
+  ..reassigning 9 genes from module 5 to modules with higher KME.\
+  ..reassigning 5 genes from module 6 to modules with higher KME.\
+  ..reassigning 2 genes from module 8 to modules with higher KME.\
+ ..merging modules that are too close..\
+     mergeCloseModules: Merging modules whose distance is less than 0.25\
+       Calculating new MEs...\
+> \
+> # confirm single-block construction\
+> cat("Signed blocks:",   length(netwk_mrna_signed_1$blockGenes),\
++     "| Unsigned blocks:", length(netwk_mrna_unsigned_1$blockGenes), "\\n")\
+Signed blocks: 1 | Unsigned blocks: 1 \
+> colors_mrna_signed   <- labels2colors(netwk_mrna_signed_1$colors)\
+> colors_mrna_unsigned <- labels2colors(netwk_mrna_unsigned_1$colors)\
+> \
+> names(colors_mrna_signed)   <- colnames(datExpr_mrna)\
+> names(colors_mrna_unsigned) <- colnames(datExpr_mrna)\
+> \
+> cat("Signed, tuned module sizes:\\n");   print(table(colors_mrna_signed))\
+Signed, tuned module sizes:\
+colors_mrna_signed\
+    black      blue     brown     green      grey   magenta      pink       red turquoise    yellow \
+      262       715       619       503      3170        65        85       472       785       544 \
+> cat("Unsigned, tuned module sizes:\\n"); print(table(colors_mrna_unsigned))\
+Unsigned, tuned module sizes:\
+colors_mrna_unsigned\
+    black      blue     brown     green      grey       red turquoise    yellow \
+       66       637       516       300      4576        72       639       414 \
+> write.csv(as.data.frame(table(colors_mrna_signed)),\
++           file.path(OUT_DIR, "tables", "mrna_module_sizes_signed.csv"), row.names = FALSE)\
+> write.csv(as.data.frame(table(colors_mrna_unsigned)),\
++           file.path(OUT_DIR, "tables", "mrna_module_sizes_unsigned.csv"), row.names = FALSE)\
+> # gene to module assignment table\
+> write.csv(\
++   data.frame(\
++     GeneID        = colnames(datExpr_mrna),\
++     ModuleSigned  = colors_mrna_signed,\
++     ModuleUnsigned = colors_mrna_unsigned\
++   ),\
++   file.path(OUT_DIR, "tables", "mrna_gene_module_assignment.csv"), row.names = FALSE\
++ )\
+> # cluster dendrograms\
+> \
+> png(file.path(OUT_DIR, "figures", "mrna_dendrograms.png"),\
++     width = 2400, height = 1600, res = 160)\
+> par(mfrow = c(2, 1))\
+> \
+> plotDendroAndColors(\
++   netwk_mrna_signed_1$dendrograms[[1]],\
++   colors_mrna_signed[netwk_mrna_signed_1$blockGenes[[1]]],\
++   "Module colours",\
++   main = paste0("mRNA Network - SIGNED (tuned, power ", power_mrna_signed, ")"),\
++   dendroLabels = FALSE, hang = 0.03,\
++   addGuide = TRUE, guideHang = 0.05\
++ )\
+> \
+> plotDendroAndColors(\
++   netwk_mrna_unsigned_1$dendrograms[[1]],\
++   colors_mrna_unsigned[netwk_mrna_unsigned_1$blockGenes[[1]]],\
++   "Module colours",\
++   main = paste0("mRNA Network - UNSIGNED (tuned, power ", power_mrna_unsigned, ")"),\
++   dendroLabels = FALSE, hang = 0.03,\
++   addGuide = TRUE, guideHang = 0.05\
++ )\
+> \
+> par(mfrow = c(1, 1))\
+> dev.off()\
+null device \
+          1 \
+> # module eigengenes and correlation heatmaps\
+> \
+> MEs_mrna_signed <- moduleEigengenes(datExpr_mrna, colors = colors_mrna_signed)$eigengenes\
+> MEs_mrna_signed <- MEs_mrna_signed[, colnames(MEs_mrna_signed) != "MEgrey", drop = FALSE]\
+> MEs_mrna_signed <- orderMEs(MEs_mrna_signed)\
+> colnames(MEs_mrna_signed) <- gsub("^ME", "", colnames(MEs_mrna_signed))\
+> \
+> MEs_mrna_unsigned <- moduleEigengenes(datExpr_mrna, colors = colors_mrna_unsigned)$eigengenes\
+> MEs_mrna_unsigned <- MEs_mrna_unsigned[, colnames(MEs_mrna_unsigned) != "MEgrey", drop = FALSE]\
+> MEs_mrna_unsigned <- orderMEs(MEs_mrna_unsigned)\
+> colnames(MEs_mrna_unsigned) <- gsub("^ME", "", colnames(MEs_mrna_unsigned))\
+> \
+> cor_mrna_signed   <- cor(MEs_mrna_signed)\
+> cor_mrna_unsigned <- cor(MEs_mrna_unsigned)\
+> \
+> png(file.path(OUT_DIR, "figures", "mrna_eigengene_heatmaps.png"),\
++     width = 2000, height = 1000, res = 150)\
+> par(mfrow = c(1, 2))\
+> \
+> heatmap.2(cor_mrna_signed,\
++           main = "mRNA Module Correlation\\n(SIGNED)",\
++           trace = "none",\
++           col = colorRampPalette(c("blue", "white", "red"))(50),\
++           key = TRUE, key.title = "Correlation", key.xlab = "Value",\
++           density.info = "none", denscol = NA)\
+> \
+> heatmap.2(cor_mrna_unsigned,\
++           main = "mRNA Module Correlation\\n(UNSIGNED)",\
++           trace = "none",\
++           col = colorRampPalette(c("blue", "white", "red"))(50),\
++           key = TRUE, key.title = "Correlation", key.xlab = "Value",\
++           density.info = "none", denscol = NA)\
+> \
+> par(mfrow = c(1, 1))\
+> dev.off()\
+null device \
+          1 \
+> \
+> saveRDS(MEs_mrna_signed,   file.path(OUT_DIR, "mrna_MEs_signed.rds"))\
+> saveRDS(MEs_mrna_unsigned, file.path(OUT_DIR, "mrna_MEs_unsigned.rds"))\
+> subtype_factor <- factor(subtype_mrna[rownames(datExpr_mrna)])\
+> trait_mat <- model.matrix(~ 0 + subtype_factor)\
+> colnames(trait_mat) <- levels(subtype_factor)\
+> rownames(trait_mat) <- rownames(datExpr_mrna)\
+> \
+> \
+> cat("Trait matrix:\\n"); print(colSums(trait_mat))\
+Trait matrix:\
+Basal  HER2  LumA  LumB \
+  170    75   528   190 \
+> \
+> module_trait_analysis <- function(MEs, traits, tag) \{\
++   \
++   nSamples <- nrow(MEs)\
++   mtCor    <- cor(MEs, traits, use = "pairwise.complete.obs")\
++   mtP      <- corPvalueStudent(mtCor, nSamples)\
++   \
++   textMatrix <- paste0(signif(mtCor, 2), "\\n(", signif(mtP, 1), ")")\
++   dim(textMatrix) <- dim(mtCor)\
++   \
++   png(file.path(OUT_DIR, "figures", paste0("mrna_module_trait_", tag, ".png")),\
++       width = 1600, height = 1400, res = 150)\
++   par(mar = c(6, 9, 3, 3))\
++   labeledHeatmap(\
++     Matrix        = mtCor,\
++     xLabels       = colnames(traits),\
++     yLabels       = paste0("ME", rownames(mtCor)),\
++     ySymbols      = rownames(mtCor),\
++     colorLabels   = FALSE,\
++     colors        = blueWhiteRed(50),\
++     textMatrix    = textMatrix,\
++     setStdMargins = FALSE,\
++     cex.text      = 0.7,\
++     zlim          = c(-1, 1),\
++     main          = paste0("Module-Subtype Relationships (mRNA, ", tag, ")")\
++   )\
++   dev.off()\
++   \
++   out <- as.data.frame(mtCor)\
++   colnames(out) <- paste0("cor_", colnames(out))\
++   outP <- as.data.frame(mtP)\
++   colnames(outP) <- paste0("p_", colnames(outP))\
++   res <- cbind(Module = rownames(mtCor), out, outP)\
++   \
++   write.csv(res, file.path(OUT_DIR, "tables",\
++                            paste0("mrna_module_trait_", tag, ".csv")),\
++             row.names = FALSE)\
++   res\
++ \}\
+> \
+> mt_signed   <- module_trait_analysis(MEs_mrna_signed,   trait_mat, "signed")\
+> mt_unsigned <- module_trait_analysis(MEs_mrna_unsigned, trait_mat, "unsigned")\
+> \
+> print(mt_signed)\
+             Module  cor_Basal     cor_HER2   cor_LumA    cor_LumB       p_Basal       p_HER2\
+turquoise turquoise  0.5554862  0.135869935 -0.7300382  0.28925106  4.627451e-79 2.331675e-05\
+magenta     magenta  0.1422000 -0.029291057 -0.2557152  0.20326796  9.441650e-06 3.638881e-01\
+black         black -0.3640713 -0.011465819  0.2369982  0.06015067  1.490499e-31 7.223202e-01\
+yellow       yellow  0.2317084  0.083837349 -0.2369347  0.01784741  3.328412e-13 9.244827e-03\
+blue           blue -0.8557226 -0.164989205  0.6218746  0.15326554 3.113924e-277 2.623556e-07\
+brown         brown  0.2312447  0.106074241 -0.1325707 -0.12719317  3.718877e-13 9.781013e-04\
+red             red -0.1647611  0.009807687  0.2722541 -0.18921533  2.726361e-07 7.611534e-01\
+green         green -0.2646506 -0.086142072  0.4919192 -0.30360107  6.746743e-17 7.480001e-03\
+pink           pink -0.1391369 -0.106835439  0.3664717 -0.25304023  1.469463e-05 8.984197e-04\
+                 p_LumA       p_LumB\
+turquoise 4.712297e-161 5.142744e-20\
+magenta    7.662153e-16 1.937133e-10\
+black      9.232438e-14 6.205881e-02\
+yellow     9.377300e-14 5.801472e-01\
+blue      3.831549e-104 1.768242e-06\
+brown      3.677640e-05 7.556458e-05\
+red        7.925974e-18 3.265048e-09\
+green      7.989126e-60 5.548495e-22\
+pink       5.600642e-32 1.557458e-15\
+> # go enrichment analysis\
+> \
+> library(clusterProfiler)\
+clusterProfiler v4.20.0 Learn more at https://yulab-smu.top/contribution-knowledge-mining/\
+\
+Please cite:\
+\
+G Yu. Thirteen years of clusterProfiler. The Innovation. 2024, 5(6):100722\
+\
+Attaching package: \'91clusterProfiler\'92\
+\
+The following object is masked from \'91package:AnnotationDbi\'92:\
+\
+    select\
+\
+The following object is masked from \'91package:IRanges\'92:\
+\
+    slice\
+\
+The following object is masked from \'91package:S4Vectors\'92:\
+\
+    rename\
+\
+The following object is masked from \'91package:purrr\'92:\
+\
+    simplify\
+\
+The following object is masked from \'91package:stats\'92:\
+\
+    filter\
+> library(org.Hs.eg.db)\
+> library(ggpubr)\
+> \
+> dir.create(file.path(OUT_DIR, "enrich", "GO_Signed"),   showWarnings = FALSE)\
+> dir.create(file.path(OUT_DIR, "enrich", "GO_Unsigned"), showWarnings = FALSE)\
+> \
+> # Ensembl version suffixes must be stripped, org.Hs.eg.db only accepts\
+> # bare IDs and fails silently otherwise\
+> perform_go_enrichment <- function(gene_list, universe_list, ontology, output_path) \{\
++   \
++   gene_clean     <- gsub("\\\\..*", "", gene_list)\
++   universe_clean <- gsub("\\\\..*", "", universe_list)\
++   \
++   go_results <- enrichGO(\
++     gene          = gene_clean,\
++     universe      = universe_clean,\
++     OrgDb         = org.Hs.eg.db,\
++     keyType       = "ENSEMBL",\
++     ont           = ontology,\
++     pAdjustMethod = "BH",\
++     pvalueCutoff  = 0.05,\
++     qvalueCutoff  = 0.05\
++   )\
++   \
++   if (!is.null(go_results) && nrow(as.data.frame(go_results)) > 0) \{\
++     write.csv(as.data.frame(go_results), file = output_path, row.names = TRUE)\
++   \}\
++   go_results\
++ \}\
+> \
+> plot_go_for_module <- function(go_bp, go_cc, go_mf, mod_name, network_type, out_dir) \{\
++   \
++   plots <- list()\
++   for (nm in c("BP", "CC", "MF")) \{\
++     obj <- switch(nm, BP = go_bp, CC = go_cc, MF = go_mf)\
++     lab <- switch(nm,\
++                   BP = "GO Biological Process",\
++                   CC = "GO Cellular Component",\
++                   MF = "GO Molecular Function")\
++     if (!is.null(obj) && nrow(as.data.frame(obj)) > 0) \{\
++       plots[[nm]] <- dotplot(obj, showCategory = 10, font.size = 9, label_format = 60) +\
++         scale_size_continuous(range = c(2, 7)) +\
++         theme_minimal() +\
++         ggtitle(paste0(lab, " (", mod_name, " - ", network_type, ")"))\
++     \}\
++   \}\
++   \
++   if (length(plots) > 0) \{\
++     combined <- ggarrange(plotlist = plots, ncol = 1, nrow = length(plots))\
++     out_file <- file.path(out_dir, paste0("GO_combined_", mod_name, ".png"))\
++     ggsave(out_file, combined, width = 10, height = 5 * length(plots), dpi = 300)\
++     cat("  saved dotplot for", mod_name, "\\n")\
++   \} else \{\
++     cat("  no significant GO terms in any ontology for module:", mod_name, "\\n")\
++   \}\
++ \}\
+> \
+> run_go_for_network <- function(colors_vec, network_type, out_dir) \{\
++   \
++   gene_universe <- names(colors_vec)\
++   mods <- setdiff(unique(colors_vec), "grey")\
++   cat("\\nModules to test (", network_type, "):", paste(mods, collapse = ", "), "\\n")\
++   \
++   results <- list()\
++   for (mod in mods) \{\
++     cat("\\nProcessing module:", mod, "(", network_type, ")\\n")\
++     gene_list <- names(colors_vec)[colors_vec == mod]\
++     results[[mod]] <- list()\
++     \
++     for (ont in c("BP", "CC", "MF")) \{\
++       out_path <- file.path(out_dir, paste0("GO_", ont, "_", mod, ".csv"))\
++       results[[mod]][[ont]] <- tryCatch(\
++         perform_go_enrichment(gene_list, gene_universe, ont, out_path),\
++         error = function(e) \{ cat("  ", ont, "failed:", e$message, "\\n"); NULL \}\
++       )\
++     \}\
++     \
++     plot_go_for_module(results[[mod]][["BP"]], results[[mod]][["CC"]],\
++                        results[[mod]][["MF"]], mod, network_type, out_dir)\
++   \}\
++   results\
++ \}\
+> \
+> go_mrna_signed   <- run_go_for_network(colors_mrna_signed,   "Signed",\
++                                        file.path(OUT_DIR, "enrich", "GO_Signed"))\
+\
+Modules to test ( Signed ): turquoise, red, blue, black, brown, green, yellow, pink, magenta \
+\
+Processing module: turquoise ( Signed )\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+  saved dotplot for turquoise \
+\
+Processing module: red ( Signed )\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+  saved dotplot for red \
+\
+Processing module: blue ( Signed )\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+  saved dotplot for blue \
+\
+Processing module: black ( Signed )\
+'select()' returned 1:1 mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:1 mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:1 mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+  saved dotplot for black \
+\
+Processing module: brown ( Signed )\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+  saved dotplot for brown \
+\
+Processing module: green ( Signed )\
+'select()' returned 1:1 mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:1 mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:1 mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+  saved dotplot for green \
+\
+Processing module: yellow ( Signed )\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+  saved dotplot for yellow \
+\
+Processing module: pink ( Signed )\
+'select()' returned 1:1 mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:1 mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:1 mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+  saved dotplot for pink \
+\
+Processing module: magenta ( Signed )\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+  saved dotplot for magenta \
+There were 39 warnings (use warnings() to see them)\
+> go_mrna_unsigned <- run_go_for_network(colors_mrna_unsigned, "Unsigned",\
++                                        file.path(OUT_DIR, "enrich", "GO_Unsigned"))\
+\
+Modules to test ( Unsigned ): blue, yellow, turquoise, green, brown, red, black \
+\
+Processing module: blue ( Unsigned )\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+  saved dotplot for blue \
+\
+Processing module: yellow ( Unsigned )\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+  saved dotplot for yellow \
+\
+Processing module: turquoise ( Unsigned )\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+  saved dotplot for turquoise \
+\
+Processing module: green ( Unsigned )\
+'select()' returned 1:1 mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:1 mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:1 mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+  saved dotplot for green \
+\
+Processing module: brown ( Unsigned )\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+  saved dotplot for brown \
+\
+Processing module: red ( Unsigned )\
+'select()' returned 1:1 mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:1 mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:1 mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+  saved dotplot for red \
+\
+Processing module: black ( Unsigned )\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+'select()' returned 1:many mapping between keys and columns\
+Scale for size is already present.\
+Adding another scale for size, which will replace the existing scale.\
+  saved dotplot for black \
+There were 30 warnings (use warnings() to see them)\
+\
+> # hub gene identification\
+> \
+> extract_hub_genes <- function(datExpr, MEs, colors_vec, tag) \{\
++   \
++   MM <- as.data.frame(cor(datExpr, MEs, use = "pairwise.complete.obs"))\
++   cat("\\n", tag, "module membership matrix:", dim(MM), "\\n")\
++   \
++   hub_list <- list()\
++   \
++   for (mod in colnames(MM)) \{\
++     \
++     kme_scores <- MM[[mod]]\
++     names(kme_scores) <- colnames(datExpr)\
++     \
++     # restrict to assigned members\
++     mod_genes  <- names(colors_vec)[colors_vec == mod]\
++     kme_scores <- kme_scores[mod_genes]\
++     \
++     n_take <- min(N_HUBS, length(kme_scores))\
++     if (n_take < N_HUBS) \{\
++       cat("  NOTE: module", mod, "has only", length(kme_scores), "genes\\n")\
++     \}\
++     \
++     # rank by signed kME, true members are positive\
++     top_ids  <- names(sort(kme_scores, decreasing = TRUE))[1:n_take]\
++     top_kmes <- kme_scores[top_ids]\
++     \
++     top_clean <- gsub("\\\\..*", "", top_ids)\
++     gene_symbols <- tryCatch(\
++       mapIds(org.Hs.eg.db, keys = top_clean, column = "SYMBOL",\
++              keytype = "ENSEMBL", multiVals = "first"),\
++       error = function(e) setNames(top_ids, top_ids)\
++     )\
++     gene_symbols[is.na(gene_symbols)] <- top_ids[is.na(gene_symbols)]\
++     \
++     hub_list[[mod]] <- data.frame(\
++       Module     = mod,\
++       EnsemblID  = top_ids,\
++       GeneSymbol = as.character(gene_symbols),\
++       kME        = round(as.numeric(top_kmes), 4),\
++       row.names  = NULL\
++     )\
++     \
++     cat("  Module", mod, "top hub:", as.character(gene_symbols)[1],\
++         "(kME =", round(top_kmes[1], 3), ")\\n")\
++   \}\
++   \
++   hubs <- do.call(rbind, hub_list)\
++   rownames(hubs) <- NULL\
++   \
++   write.csv(hubs, file.path(OUT_DIR, "hub_genes",\
++                             paste0("mrna_hub_genes_", tag, "_top", N_HUBS, ".csv")),\
++             row.names = FALSE)\
++   \
++   # no gene should now appear in two modules\
++   dup_check <- hubs %>%\
++     group_by(GeneSymbol) %>%\
++     summarise(n_modules = n_distinct(Module), .groups = "drop") %>%\
++     filter(n_modules > 1)\
++   cat("Genes in more than one", tag, "module:", nrow(dup_check), "(should be 0)\\n")\
++   if (nrow(dup_check) > 0) print(dup_check)\
++   \
++   hubs\
++ \}\
+> \
+> hub_mrna_signed   <- extract_hub_genes(datExpr_mrna, MEs_mrna_signed,\
++                                        colors_mrna_signed,   "signed")\
+\
+ signed module membership matrix: 7220 9 \
+'select()' returned 1:1 mapping between keys and columns\
+  Module turquoise top hub: MCM10 (kME = 0.914 )\
+'select()' returned 1:1 mapping between keys and columns\
+  Module magenta top hub: PUF60 (kME = 0.921 )\
+'select()' returned 1:1 mapping between keys and columns\
+  Module black top hub: MCRIP2 (kME = 0.895 )\
+'select()' returned 1:1 mapping between keys and columns\
+  Module yellow top hub: NAA10 (kME = 0.856 )\
+'select()' returned 1:1 mapping between keys and columns\
+  Module blue top hub: ESR1 (kME = 0.883 )\
+'select()' returned 1:1 mapping between keys and columns\
+  Module brown top hub: SNX20 (kME = 0.959 )\
+'select()' returned 1:1 mapping between keys and columns\
+  Module red top hub: GLT8D2 (kME = 0.932 )\
+'select()' returned 1:1 mapping between keys and columns\
+  Module green top hub: ERG (kME = 0.901 )\
+'select()' returned 1:1 mapping between keys and columns\
+  Module pink top hub: CIDEC (kME = 0.937 )\
+Genes in more than one signed module: 0 (should be 0)\
+> hub_mrna_unsigned <- extract_hub_genes(datExpr_mrna, MEs_mrna_unsigned,\
++                                        colors_mrna_unsigned, "unsigned")\
+\
+ unsigned module membership matrix: 7220 7 \
+'select()' returned 1:1 mapping between keys and columns\
+  Module brown top hub: SNX20 (kME = 0.958 )\
+'select()' returned 1:1 mapping between keys and columns\
+  Module yellow top hub: GLT8D2 (kME = 0.932 )\
+'select()' returned 1:1 mapping between keys and columns\
+  Module green top hub: DIPK2B (kME = 0.913 )\
+'select()' returned 1:1 mapping between keys and columns\
+  Module red top hub: CIDEC (kME = 0.947 )\
+'select()' returned 1:1 mapping between keys and columns\
+  Module blue top hub: MCM10 (kME = 0.927 )\
+'select()' returned 1:1 mapping between keys and columns\
+  Module black top hub: PUF60 (kME = 0.923 )\
+'select()' returned 1:1 mapping between keys and columns\
+  Module turquoise top hub: ATP5F1D (kME = 0.87 )\
+Genes in more than one unsigned module: 0 (should be 0)\
+> \
+> # kME bar charts per module\
+> plot_kme_bars <- function(hubs, tag) \{\
++   p <- ggplot(hubs, aes(x = reorder(GeneSymbol, kME), y = kME, fill = Module)) +\
++     geom_col() +\
++     scale_fill_manual(values = setNames(unique(hubs$Module), unique(hubs$Module))) +\
++     coord_flip() +\
++     facet_wrap(~ Module, scales = "free_y") +\
++     labs(title = paste0("Top ", N_HUBS, " hub genes by kME (mRNA, ", tag, ")"),\
++          x = NULL, y = "kME") +\
++     theme_bw() + theme(legend.position = "none", axis.text.y = element_text(size = 6))\
++   \
++   ggsave(file.path(OUT_DIR, "figures", paste0("mrna_kme_bars_", tag, ".png")),\
++          p, width = 14, height = 10, dpi = 300)\
++ \}\
+> \
+> plot_kme_bars(hub_mrna_signed,   "signed")\
+> plot_kme_bars(hub_mrna_unsigned, "unsigned")\
+> # save session objects\
+> \
+> cor <- stats::cor   \
+> \
+> save(datExpr_mrna, subtype_mrna,\
++      power_mrna_signed, power_mrna_unsigned,\
++      netwk_mrna_signed_1, netwk_mrna_unsigned_1,\
++      colors_mrna_signed, colors_mrna_unsigned,\
++      MEs_mrna_signed, MEs_mrna_unsigned,\
++      mt_signed, mt_unsigned,\
++      hub_mrna_signed, hub_mrna_unsigned,\
++      file = file.path(OUT_DIR, "mrna_wgcna_session.RData"))\
+> \
+> cat("\\nmRNA WGCNA pipeline complete. Outputs in:", OUT_DIR, "\\n")\
+\
+mRNA WGCNA pipeline complete. Outputs in: /Users/PrathamShah/Desktop/IIITH/Codes/WGCNA_Pipeline/Gene_Expression_Data_Analysis/mRNA WGCNA \
+> sessionInfo()\
+R version 4.6.1 (2026-06-24)\
+Platform: aarch64-apple-darwin23\
+Running under: macOS Tahoe 26.5\
+\
+Matrix products: default\
+BLAS:   /System/Library/Frameworks/Accelerate.framework/Versions/A/Frameworks/vecLib.framework/Versions/A/libBLAS.dylib \
+LAPACK: /Library/Frameworks/R.framework/Versions/4.6/Resources/lib/libRlapack.dylib;  LAPACK version 3.12.1\
+\
+locale:\
+[1] en_US.UTF-8/en_US.UTF-8/en_US.UTF-8/C/en_US.UTF-8/en_US.UTF-8\
+\
+time zone: Asia/Kolkata\
+tzcode source: internal\
+\
+attached base packages:\
+[1] stats4    grid      stats     graphics  grDevices utils     datasets  methods   base     \
+\
+other attached packages:\
+ [1] clusterProfiler_4.20.0      readxl_1.5.0                org.Hs.eg.db_3.23.1        \
+ [4] DESeq2_1.52.0               SummarizedExperiment_1.42.0 MatrixGenerics_1.24.0      \
+ [7] matrixStats_1.5.0           GenomicRanges_1.64.0        Seqinfo_1.2.0              \
+[10] GO.db_3.23.1                AnnotationDbi_1.74.0        IRanges_2.46.0             \
+[13] S4Vectors_0.50.1            Biobase_2.72.0              BiocGenerics_0.58.1        \
+[16] generics_0.1.4              dendextend_1.19.1           VennDiagram_1.8.2          \
+[19] futile.logger_1.4.9         ggpubr_1.0.0                gplots_3.3.0               \
+[22] lubridate_1.9.5             forcats_1.0.1               stringr_1.6.0              \
+[25] dplyr_1.2.1                 purrr_1.2.2                 readr_2.2.0                \
+[28] tidyr_1.3.2                 tibble_3.3.1                ggplot2_4.0.3              \
+[31] tidyverse_2.0.0             WGCNA_1.74                  fastcluster_1.3.0          \
+[34] dynamicTreeCut_1.63-1      \
+\
+loaded via a namespace (and not attached):\
+  [1] splines_4.6.1           bitops_1.0-9            ggplotify_0.1.3         cellranger_1.1.0       \
+  [5] polyclip_1.10-7         preprocessCore_1.74.0   enrichit_0.2.0          rpart_4.1.27           \
+  [9] lifecycle_1.0.5         httr2_1.3.0             rstatix_1.0.0           doParallel_1.0.17      \
+ [13] MASS_7.3-66             processx_3.9.0          lattice_0.22-9          backports_1.5.1        \
+ [17] magrittr_2.0.5          Hmisc_5.2-6             rmarkdown_2.31          yaml_2.3.12            \
+ [21] otel_0.2.0              ggtangle_0.1.2          cowplot_1.2.0           DBI_1.3.0              \
+ [25] RColorBrewer_1.1-3      abind_1.4-8             yulab.utils_0.2.4       nnet_7.3-20            \
+ [29] tweenr_2.0.3            rappdirs_0.3.4          aisdk_1.4.12            gdtools_0.5.1          \
+ [33] enrichplot_1.32.0       ggrepel_0.9.8           tidytree_0.4.8          codetools_0.2-20       \
+ [37] DelayedArray_0.38.2     ggforce_0.5.0           DOSE_4.6.0              tidyselect_1.2.1       \
+ [41] aplot_0.3.1             farver_2.1.2            viridis_0.6.5           base64enc_0.1-6        \
+ [45] jsonlite_2.0.0          Formula_1.2-5           survival_3.8-9          iterators_1.0.14       \
+ [49] systemfonts_1.3.2       foreach_1.5.2           tools_4.6.1             ggnewscale_0.5.2       \
+ [53] ragg_1.5.2              treeio_1.36.1           Rcpp_1.1.2              glue_1.8.1             \
+ [57] gridExtra_2.3.1         SparseArray_1.12.2      xfun_0.60               qvalue_2.44.0          \
+ [61] withr_3.0.3             formatR_1.14            BiocManager_1.30.27     fastmap_1.2.0          \
+ [65] callr_3.8.0             caTools_1.18.3          digest_0.6.39           timechange_0.4.0       \
+ [69] R6_2.6.1                gridGraphics_0.5-1      textshaping_1.0.5       colorspace_2.1-3       \
+ [73] gtools_3.9.5            RSQLite_3.53.3          fontLiberation_0.1.0    data.table_1.18.4      \
+ [77] httr_1.4.8              htmlwidgets_1.6.4       S4Arrays_1.12.0         scatterpie_0.2.6       \
+ [81] pkgconfig_2.0.3         gtable_0.3.6            blob_1.3.0              S7_0.2.2               \
+ [85] impute_1.86.0           XVector_0.52.0          htmltools_0.5.9         fontBitstreamVera_0.1.1\
+ [89] carData_3.0-6           scales_1.4.0            png_0.1-9               ggfun_0.2.1            \
+ [93] knitr_1.51              lambda.r_1.2.4          rstudioapi_0.19.0       tzdb_0.5.0             \
+ [97] reshape2_1.4.5          checkmate_2.3.4         nlme_3.1-170            cachem_1.1.0           \
+[101] KernSmooth_2.23-26      parallel_4.6.1          foreign_0.8-91          pillar_1.11.1          \
+[105] vctrs_0.7.3             tidydr_0.0.6            car_3.1-5               cluster_2.1.8.2        \
+[109] htmlTable_2.5.0         evaluate_1.0.5          cli_3.6.6               locfit_1.5-9.12        \
+[113] compiler_4.6.1          futile.options_1.0.1    rlang_1.3.0             crayon_1.5.3           \
+[117] ggsignif_0.6.4          labeling_0.4.3          plyr_1.8.9              fs_2.1.0               \
+[121] ggiraph_0.9.6           stringi_1.8.7           viridisLite_0.4.3       BiocParallel_1.46.0    \
+[125] Biostrings_2.80.1       lazyeval_0.2.3          fontquiver_0.2.1        GOSemSim_2.38.3        \
+[129] Matrix_1.7-5            hms_1.1.4               patchwork_1.3.2         bit64_4.8.2            \
+[133] KEGGREST_1.52.2         igraph_2.3.3            broom_1.0.13            memoise_2.0.1          \
+[137] ggtree_4.2.0            bit_4.6.0               gson_0.2.0              ape_5.8-1      }

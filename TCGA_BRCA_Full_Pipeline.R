@@ -3,31 +3,30 @@
 # for TCGA-BRCA (Breast Cancer gene expression data)
 # dataset cleaned and preprocessed before use
 
-library(WGCNA)
-library(tidyverse)
-library(gplots)
-library(ggplot2)
-library(ggpubr)
-library(VennDiagram)
-library(dplyr)
-library(dendextend)
-library(gplots)
-library(ggplot2)
-library(ggpubr)
-library(VennDiagram)
-library(dplyr)
-library(GO.db)
+# CRAN packages
+install.packages(c(
+  "tidyverse", "gplots", "ggplot2", "ggpubr",
+  "VennDiagram", "dplyr", "dendextend"
+))
+
+# Bioconductor packages
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+BiocManager::install(c(
+  "WGCNA", "GO.db", "DESeq2", "genefilter", "clusterProfiler",
+  "impute", "preprocessCore"   # WGCNA's Bioc dependencies
+))
+
 library(DESeq2)
-library(genefilter)
-library(clusterProfiler)
 
 # Load tumor data 
 
-tumor_data <- read.csv("C:/Users/Pratham Shah/Downloads/IIITH/TCGA_BRCA_Data_Run02/TCGA-BRCA_protein_coding_tumor.csv",
+tumor_data <- read.csv("/Users/PrathamShah/Desktop/IIITH/Codes/WGCNA_Pipeline/Gene_Expression_Data_Analysis/extracted_data/TCGA-BRCA_protein_coding_tumor.csv",
                        row.names = 1,
                        check.names = FALSE)
 
-normal_data <- read.csv("C:/Users/Pratham Shah/Downloads/IIITH/TCGA_BRCA_Data_Run02/TCGA-BRCA_protein_coding_normal.csv",
+normal_data <- read.csv("/Users/PrathamShah/Desktop/IIITH/Codes/WGCNA_Pipeline/Gene_Expression_Data_Analysis/extracted_data/TCGA-BRCA_protein_coding_normal.csv",
                         row.names = 1,
                         check.names = FALSE)
 
@@ -1378,6 +1377,10 @@ for (mod in unsigned_modules_to_test) {
 # correlation between each gene's expression profile and the module eigengene.
 # Genes with the highest absolute kME are the hub genes.
 
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+BiocManager::install("org.Hs.eg.db")
 
 library(WGCNA)
 library(org.Hs.eg.db)
@@ -1392,23 +1395,17 @@ dir.create("hub_genes", showWarnings = FALSE)
 # SECTION 1: SIGNED NETWORK HUB GENES
 
 
-cat("\nSIGNED NETWORK: Computing Module Membership\n")
+# SECTION 1: SIGNED NETWORK HUB GENES (corrected: restricted to module members)
 
+cat("\nSIGNED NETWORK: Computing Module Membership\n")
 
 MM_signed <- as.data.frame(
   cor(t(filtered_tumor), MEs_tum_signed, use = "pairwise.complete.obs")
 )
 
-# The column names of MM_signed now match the module colour names in MEs_tum_signed.
-# Confirm:
 cat("Module membership matrix dimensions:", dim(MM_signed), "\n")
 cat("Modules covered:", colnames(MM_signed), "\n")
 
-
-# Extract top N hub genes per module (signed)
-
-
-# Get the module colour names (excluding grey, which was already removed from MEs)
 signed_modules <- colnames(MM_signed)
 
 hub_list_signed <- list()
@@ -1419,8 +1416,17 @@ for (mod in signed_modules) {
   kme_scores <- MM_signed[[mod]]
   names(kme_scores) <- rownames(filtered_tumor)
   
-  # Sort by absolute kME descending and take top N
-  top_genes_ensembl <- names(sort(abs(kme_scores), decreasing = TRUE))[1:N_HUBS]
+  # FIX: restrict to genes actually ASSIGNED to this module
+  mod_genes  <- names(tumor_colors_signed)[tumor_colors_signed == mod]
+  kme_scores <- kme_scores[mod_genes]
+  
+  # FIX: rank by SIGNED kME (true members are positive), not abs(kME)
+  n_take <- min(N_HUBS, length(kme_scores))
+  if (n_take < N_HUBS) {
+    cat("  NOTE: module", mod, "has only", length(kme_scores),
+        "assigned genes; taking all of them.\n")
+  }
+  top_genes_ensembl <- names(sort(kme_scores, decreasing = TRUE))[1:n_take]
   top_kme_values    <- kme_scores[top_genes_ensembl]
   
   # Strip Ensembl version suffixes for database lookup
@@ -1449,22 +1455,27 @@ for (mod in signed_modules) {
       "(kME =", round(top_kme_values[1], 3), ")\n")
 }
 
-# Combine into a single data frame
 hub_genes_signed <- do.call(rbind, hub_list_signed)
 rownames(hub_genes_signed) <- NULL
 
-# Save to CSV
 write.csv(hub_genes_signed,
-          "hub_genes/hub_genes_signed_top20.csv",
+          "/Users/PrathamShah/Desktop/IIITH/Codes/WGCNA_Pipeline/Gene_Expression_Data_Analysis/hub_genes/hub_genes_signed_top20.csv",
           row.names = FALSE)
 
 cat("\nSigned hub gene table saved to hub_genes/hub_genes_signed_top20.csv\n")
 print(hub_genes_signed)
 
+# Sanity check: no gene should appear in more than one module now
+dup_check_signed <- hub_genes_signed %>%
+  group_by(GeneSymbol) %>%
+  summarise(n_modules = n_distinct(Module), .groups = "drop") %>%
+  filter(n_modules > 1)
+cat("\nGenes appearing in more than one signed module after fix:",
+    nrow(dup_check_signed), "(should be 0)\n")
+if (nrow(dup_check_signed) > 0) print(dup_check_signed)
 
 
-# SECTION 2: UNSIGNED NETWORK HUB GENES
-
+# SECTION 2: UNSIGNED NETWORK HUB GENES (corrected: restricted to module members)
 
 cat("\nUNSIGNED NETWORK: Computing Module Membership\n")
 
@@ -1484,7 +1495,19 @@ for (mod in unsigned_modules) {
   kme_scores <- MM_unsigned[[mod]]
   names(kme_scores) <- rownames(filtered_tumor)
   
-  top_genes_ensembl <- names(sort(abs(kme_scores), decreasing = TRUE))[1:N_HUBS]
+  # FIX: restrict to genes actually ASSIGNED to this module
+  mod_genes  <- names(tumor_colors_unsigned)[tumor_colors_unsigned == mod]
+  kme_scores <- kme_scores[mod_genes]
+  
+  # Unsigned modules can legitimately contain both up- and down-
+  # correlated genes relative to the eigengene, so abs(kME) ranking
+  # is kept here -- only the membership restriction is new.
+  n_take <- min(N_HUBS, length(kme_scores))
+  if (n_take < N_HUBS) {
+    cat("  NOTE: module", mod, "has only", length(kme_scores),
+        "assigned genes; taking all of them.\n")
+  }
+  top_genes_ensembl <- names(sort(abs(kme_scores), decreasing = TRUE))[1:n_take]
   top_kme_values    <- kme_scores[top_genes_ensembl]
   
   top_genes_clean <- gsub("\\..*", "", top_genes_ensembl)
@@ -1521,6 +1544,13 @@ write.csv(hub_genes_unsigned,
 cat("\nUnsigned hub gene table saved to hub_genes/hub_genes_unsigned_top20.csv\n")
 print(hub_genes_unsigned)
 
+dup_check_unsigned <- hub_genes_unsigned %>%
+  group_by(GeneSymbol) %>%
+  summarise(n_modules = n_distinct(Module), .groups = "drop") %>%
+  filter(n_modules > 1)
+cat("\nGenes appearing in more than one unsigned module after fix:",
+    nrow(dup_check_unsigned), "(should be 0)\n")
+if (nrow(dup_check_unsigned) > 0) print(dup_check_unsigned)
 
 
 # SECTION 3: VISUALISE kME DISTRIBUTIONS (bar charts per module)
