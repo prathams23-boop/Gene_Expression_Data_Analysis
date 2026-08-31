@@ -21,8 +21,10 @@ OUT_DIR        <- "/Users/PrathamShah/Desktop/IIITH/Codes/WGCNA_Pipeline/Gene_Ex
 
 # low-expression filter: keep a gene if it has at least MIN_COUNT reads
 # in at least MIN_FRAC of samples
-MIN_COUNT      <- 10
-MIN_FRAC       <- 0.50
+# correction: the data was already filtered, so I am now removing all filters
+# (no min count, no MAD)
+MIN_COUNT      <- NA
+MIN_FRAC       <- NA
 
 # number of genes carried into WGCNA after ranking by MAD
 # set to NA to keep everything that survives the expression filter
@@ -83,11 +85,15 @@ cat("DESeq2 input (genes x samples):", dim(counts_mrna), "\n")
 
 # low expression filter
 
-keep_expressed <- rowMeans(counts_mrna >= MIN_COUNT) >= MIN_FRAC
-cat("Genes passing expression filter:", sum(keep_expressed),
-    "of", nrow(counts_mrna), "\n")
-
-counts_mrna <- counts_mrna[keep_expressed, ]
+if (is.na(MIN_COUNT) || is.na(MIN_FRAC)) {
+  cat("Low-expression filter disabled, keeping all",
+      nrow(counts_mrna), "genes\n")
+} else {
+  keep_expressed <- rowMeans(counts_mrna >= MIN_COUNT) >= MIN_FRAC
+  cat("Genes passing expression filter:", sum(keep_expressed),
+      "of", nrow(counts_mrna), "\n")
+  counts_mrna <- counts_mrna[keep_expressed, ]
+}
 
 
 # normalisation and vst

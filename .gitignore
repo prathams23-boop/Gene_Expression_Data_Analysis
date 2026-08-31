@@ -22,6 +22,10 @@ lncRNA WGCNA/tables/
 lncRNA WGCNA/figures/lncrna_kme_bars_signed.png
 lncRNA WGCNA/figures/lncrna_kme_bars_unsigned.png
 lncRNA WGCNA/lncrna_wgcna_session.RData
+mRNA WGCNA/R_data_mrna_2/
+mRNA WGCNA/mrna_wgcna_session.RData
+lncRNA WGCNA/R_data_lncrna_2/
+
 
 
 
